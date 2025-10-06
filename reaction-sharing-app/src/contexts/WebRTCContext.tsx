@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useReducer, useCallback } from 'react';
 import { config } from '../config/environment';
-import type { EmotionData, FaceLandmark } from '../hooks/useMediaPipe';
+import type { FaceLandmark } from '../hooks/useMediaPipe';
 import type {
   WebRTCState,
   WebRTCAction,
   WebRTCContextValue,
-  PeerInfo,
   RTCConnectionState,
 } from '../types/webrtc';
 
@@ -201,7 +200,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, []);
 
   // ピア接続作成
-  const createPeerConnection = useCallback(async (peerId: string, username: string): Promise<RTCPeerConnection> => {
+  const createPeerConnection = useCallback(async (peerId: string, _username: string): Promise<RTCPeerConnection> => {
     try {
       const rtcConfig: RTCConfiguration = {
         iceServers: config.stunServers.map(url => ({ urls: url })),
@@ -331,7 +330,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // 全ピアにデータ配信
   const broadcastData = useCallback((data: any) => {
     let successCount = 0;
-    state.peers.forEach((peer, peerId) => {
+    state.peers.forEach((_peer, peerId) => {
       if (sendDataToPeer(peerId, data)) {
         successCount++;
       }

@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { WebRTCProvider } from './contexts/WebRTCContext';
 import { LobbyView } from './components/lobby/LobbyView';

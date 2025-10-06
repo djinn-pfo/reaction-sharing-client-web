@@ -7,7 +7,12 @@ import type {
 
 export class WebSocketClient {
   private ws: WebSocket | null = null;
-  private config: Required<WebSocketConfig>;
+  private config: WebSocketConfig & {
+    reconnectInterval: number;
+    maxReconnectAttempts: number;
+    heartbeatInterval: number;
+    connectionTimeout: number;
+  };
   private handlers: WebSocketEventHandlers = {};
   private connectionState: ConnectionState = 'disconnected';
   private reconnectAttempts = 0;
@@ -18,11 +23,12 @@ export class WebSocketClient {
 
   constructor(config: WebSocketConfig) {
     this.config = {
-      reconnectInterval: 5000,
-      maxReconnectAttempts: 5,
-      heartbeatInterval: 30000,
-      connectionTimeout: 10000,
-      ...config,
+      url: config.url,
+      userId: config.userId,
+      reconnectInterval: config.reconnectInterval ?? 5000,
+      maxReconnectAttempts: config.maxReconnectAttempts ?? 5,
+      heartbeatInterval: config.heartbeatInterval ?? 30000,
+      connectionTimeout: config.connectionTimeout ?? 10000,
     };
   }
 

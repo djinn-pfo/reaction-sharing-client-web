@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { FaceLandmarker, FilesetResolver } from '@mediapipe/tasks-vision';
-import { LandmarkCompressor, encodeBinaryMessage, type BinaryLandmarkMessage } from '../utils/compression';
+import { LandmarkCompressor } from '../utils/compression';
 import { FaceNormalizer } from '../core/normalizer/FaceNormalizer';
 import type { Point3D, NormalizedLandmarks } from '../types';
 
@@ -41,8 +41,7 @@ export interface MediaPipeHookOptions {
 // 型定義を別途エクスポート
 export type { EmotionData as EmotionDataType };
 
-export const useMediaPipe = (options: MediaPipeHookOptions = {}) => {
-  const { onLandmarkData, sendInterval = 100, enableSending = false } = options;
+export const useMediaPipe = (_options: MediaPipeHookOptions = {}) => {
 
   const [state, setState] = useState<MediaPipeState>({
     isInitialized: false,
@@ -62,8 +61,6 @@ export const useMediaPipe = (options: MediaPipeHookOptions = {}) => {
   const compressorRef = useRef<LandmarkCompressor>(new LandmarkCompressor());
   const faceNormalizerRef = useRef<FaceNormalizer>(new FaceNormalizer());
   const sendTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastSendTimeRef = useRef<number>(0);
-  const lastDebugLogRef = useRef<number>(0);
 
   useEffect(() => {
     const initializeMediaPipe = async () => {
@@ -81,7 +78,7 @@ export const useMediaPipe = (options: MediaPipeHookOptions = {}) => {
           },
           runningMode: "VIDEO",
           numFaces: 1,
-          minDetectionConfidence: 0.45, // 精度を下げて高速化
+          minFaceDetectionConfidence: 0.45, // 精度を下げて高速化
           minTrackingConfidence: 0.45,  // トラッキング精度も調整
           outputFaceBlendshapes: false, // 不要な出力を無効化（感情検出はバックエンドで行う）
           outputFacialTransformationMatrixes: true // MediaPipe公式仕様に従った設定
@@ -126,9 +123,6 @@ export const useMediaPipe = (options: MediaPipeHookOptions = {}) => {
 
       const results = faceLandmarkerRef.current.detectForVideo(video, performance.now());
 
-      // transformation matrixのチェックのみ
-      const now = Date.now();
-
       let landmarks: FaceLandmark[] | null = null;
       let normalizedLandmarks: Point3D[] | null = null;
       let normalizationData: NormalizedLandmarks | null = null;
@@ -147,9 +141,9 @@ export const useMediaPipe = (options: MediaPipeHookOptions = {}) => {
         let foundProperty = null;
 
         // DEBUG: MediaPipeの結果オブジェクトのプロパティを確認（一度だけ）
-        if (!window.mediaPipePropsLogged) {
+        if (!(window as any).mediaPipePropsLogged) {
           console.log('🔍 Available MediaPipe result properties:', Object.keys(results));
-          window.mediaPipePropsLogged = true;
+          (window as any).mediaPipePropsLogged = true;
         }
 
         // 正しいプロパティ名を使用（MediaPipe公式仕様）
@@ -158,8 +152,8 @@ export const useMediaPipe = (options: MediaPipeHookOptions = {}) => {
         ];
 
         for (const prop of possibleMatrixProps) {
-          if (results[prop] && results[prop].length > 0) {
-            transformMatrix = results[prop][0];
+          if ((results as any)[prop] && (results as any)[prop].length > 0) {
+            transformMatrix = (results as any)[prop][0];
             foundProperty = prop;
             break;
           }

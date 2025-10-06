@@ -7,12 +7,9 @@ import type {
 } from '../../types';
 import {
   extractRotationMatrix,
-  matrixToEulerAngles,
-  matrixToEulerAnglesAlt,
   matrixToEulerAnglesMediaPipe,
   invertMatrix3x3,
   applyRotationToPoints,
-  debugTransformMatrix
 } from '../../utils/rotationUtils';
 
 export class FaceNormalizer {
@@ -185,8 +182,17 @@ export class FaceNormalizer {
       // 頭部姿勢を計算
       const headPose = matrixToEulerAnglesMediaPipe(rotationMatrix);
 
+      // MediaPipe座標系（+Y下）から通常座標系（+Y上）に変換
+      // Y軸の行と列の符号を反転
+      const coordinateAdjustedMatrix = [
+        [rotationMatrix[0][0], -rotationMatrix[0][1], rotationMatrix[0][2]],
+        [-rotationMatrix[1][0], rotationMatrix[1][1], -rotationMatrix[1][2]],
+        [rotationMatrix[2][0], -rotationMatrix[2][1], rotationMatrix[2][2]]
+      ];
+
       // 逆回転行列を計算して正面向きに補正
-      const inverseRotation = invertMatrix3x3(rotationMatrix);
+      const inverseRotation = invertMatrix3x3(coordinateAdjustedMatrix);
+      // const inverseRotation = invertMatrix3x3(rotationMatrix);
 
       // 回転を適用
       const rotatedPoints = applyRotationToPoints(landmarks, inverseRotation);

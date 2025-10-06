@@ -8,8 +8,8 @@ set -e
 echo "🚀 Starting deployment..."
 
 # VPSの情報 (ここを編集)
-VPS_USER="your-username"
-VPS_HOST="your-vps-ip"
+VPS_USER="lol_bouya"
+VPS_HOST="os3-294-36938.vs.sakura.ne.jp"
 VPS_PATH="/var/www/reaction-sharing-app"
 
 # ビルド
@@ -25,4 +25,4 @@ rsync -avz --delete \
   dist/ ${VPS_USER}@${VPS_HOST}:${VPS_PATH}/
 
 echo "✅ Deployment completed!"
-echo "🌐 Visit: https://your-domain.com"
+echo "🌐 Visit: https://os3-294-36938.vs.sakura.ne.jp"

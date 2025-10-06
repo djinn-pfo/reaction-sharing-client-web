@@ -5,15 +5,13 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 import { useSignaling } from '../../hooks/useSignaling';
 import { useWebRTC } from '../../contexts/WebRTCContext';
 import { useMediaPipe } from '../../hooks/useMediaPipe';
-import { EmotionDisplay } from '../emotion/EmotionDisplay';
 import { SelfEmotionIndicator } from '../emotion/SelfEmotionIndicator';
-import { FaceLandmarkCanvas } from '../video/FaceLandmarkCanvas';
 import { ParticipantEmotionBar } from '../emotion/ParticipantEmotionBar';
 import { IntensityChart } from '../charts/IntensityChart';
 import { NormalizedLandmarksViewer } from '../visualization/NormalizedLandmarksViewer';
 
 export const SessionView: React.FC = () => {
-  const { roomId } = useParams<{ roomId: string }>();
+  const { roomId } = useParams();
   const navigate = useNavigate();
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
@@ -22,7 +20,7 @@ export const SessionView: React.FC = () => {
     laughLevel: "low" | "medium" | "high";
   }>({ intensity: 0, laughLevel: 'low' });
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const animationFrameRef = useRef<number>();
+  const animationFrameRef = useRef<number | undefined>(undefined);
   const initializationRef = useRef<boolean>(false);
 
   const {
@@ -31,7 +29,6 @@ export const SessionView: React.FC = () => {
     error: signalingError,
     receivedEmotions,
     connect,
-    disconnect,
     joinRoom,
     leaveRoom,
     sendEmotionData,
@@ -48,7 +45,6 @@ export const SessionView: React.FC = () => {
     normalizationData,
     compressionStats,
     processVideoFrame,
-    resetCompression,
     error: mediaPipeError
   } = useMediaPipe({
     sendInterval: 33, // 30fps = 33ms間隔
@@ -89,31 +85,6 @@ export const SessionView: React.FC = () => {
       });
     }
   }, [isConnected, sendEmotionData, normalizedLandmarks, normalizationData]);
-
-  // 強度計算関数（WebRTCContextと同じロジック）
-  const calculateIntensity = useCallback((landmarks: any[]): number => {
-    if (landmarks.length < 468) return 0;
-
-    // 口角のランドマーク（MediaPipeの標準位置）
-    const leftMouthCorner = landmarks[61] || { x: 0, y: 0 };
-    const rightMouthCorner = landmarks[291] || { x: 0, y: 0 };
-    const mouthCenter = landmarks[13] || { x: 0, y: 0 };
-
-    // Y座標の差から笑顔強度を計算
-    const leftLift = Math.max(0, mouthCenter.y - leftMouthCorner.y);
-    const rightLift = Math.max(0, mouthCenter.y - rightMouthCorner.y);
-    const averageLift = (leftLift + rightLift) / 2;
-
-    // 正規化（0-1）
-    return Math.min(1, Math.max(0, averageLift / 10));
-  }, []);
-
-  // 笑いレベル計算
-  const calculateLaughLevel = useCallback((intensity: number): "low" | "medium" | "high" => {
-    if (intensity > 0.7) return "high";
-    if (intensity > 0.3) return "medium";
-    return "low";
-  }, []);
 
   // ユーザー名を取得
   const userName = localStorage.getItem('userName') || 'Anonymous';
@@ -497,7 +468,7 @@ export const SessionView: React.FC = () => {
                 <SelfEmotionIndicator
                   intensity={selfEmotionData.intensity}
                   laughLevel={selfEmotionData.laughLevel}
-                  isActive={isMediaPipeReady && landmarks && landmarks.length > 0}
+                  isActive={!!(isMediaPipeReady && landmarks && landmarks.length > 0)}
                 />
 
                 {/* システム情報 */}

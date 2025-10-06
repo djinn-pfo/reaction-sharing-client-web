@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
 import type { NormalizedLandmarks } from '../../types/normalization';
@@ -22,9 +22,9 @@ const LandmarkPoints: React.FC<{ landmarks: NormalizedLandmarks }> = ({ landmark
         landmarks.normalized.flatMap(p => [p.x, p.y, p.z])
       );
 
-      const positionAttribute = geometryRef.current.getAttribute('position');
+      const positionAttribute = geometryRef.current.getAttribute('position') as THREE.BufferAttribute;
       if (positionAttribute) {
-        positionAttribute.array = positions;
+        positionAttribute.set(positions);
         positionAttribute.needsUpdate = true;
       }
 
@@ -44,9 +44,8 @@ const LandmarkPoints: React.FC<{ landmarks: NormalizedLandmarks }> = ({ landmark
       <bufferGeometry ref={geometryRef}>
         <bufferAttribute
           attach="attributes-position"
+          args={[positions, 3]}
           count={landmarks.normalized.length}
-          array={positions}
-          itemSize={3}
           usage={THREE.DynamicDrawUsage}
         />
       </bufferGeometry>
@@ -82,9 +81,8 @@ const Axes: React.FC = () => {
         <bufferGeometry>
           <bufferAttribute
             attach="attributes-position"
+            args={[new Float32Array([-300, 0, 0, 300, 0, 0]), 3]}
             count={2}
-            array={new Float32Array([-300, 0, 0, 300, 0, 0])}
-            itemSize={3}
           />
         </bufferGeometry>
         <lineBasicMaterial color="#ff0000" />
@@ -94,9 +92,8 @@ const Axes: React.FC = () => {
         <bufferGeometry>
           <bufferAttribute
             attach="attributes-position"
+            args={[new Float32Array([0, -300, 0, 0, 300, 0]), 3]}
             count={2}
-            array={new Float32Array([0, -300, 0, 0, 300, 0])}
-            itemSize={3}
           />
         </bufferGeometry>
         <lineBasicMaterial color="#00ff00" />
@@ -106,9 +103,8 @@ const Axes: React.FC = () => {
         <bufferGeometry>
           <bufferAttribute
             attach="attributes-position"
+            args={[new Float32Array([0, 0, -300, 0, 0, 300]), 3]}
             count={2}
-            array={new Float32Array([0, 0, -300, 0, 0, 300])}
-            itemSize={3}
           />
         </bufferGeometry>
         <lineBasicMaterial color="#0000ff" />

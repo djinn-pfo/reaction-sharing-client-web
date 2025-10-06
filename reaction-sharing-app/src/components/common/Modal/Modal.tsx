@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
-import { Button } from '../Button';
+import type { ReactNode } from 'react';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   showCloseButton?: boolean;
   closeOnBackdrop?: boolean;
@@ -40,7 +40,7 @@ export const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  const sizeClasses = {
+  const sizeClasses: Record<'sm' | 'md' | 'lg' | 'xl', string> = {
     sm: 'max-w-md',
     md: 'max-w-lg',
     lg: 'max-w-2xl',
