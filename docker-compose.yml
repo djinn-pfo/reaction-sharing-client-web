@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: lolup-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - lolup-network
+
+  ion-sfu:
+    image: pionwebrtc/ion-sfu:latest
+    container_name: lolup-ion-sfu
+    ports:
+      - "7000:7000"
+      - "5000-5200:5000-5200/udp"
+    volumes:
+      - ./configs/sfu.toml:/configs/sfu.toml:ro
+      - ./configs/turn.toml:/configs/turn.toml:ro
+    environment:
+      - SFU_CONFIG_FILE=/configs/sfu.toml
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - lolup-network
+
+volumes:
+  redis_data:
+
+networks:
+  lolup-network:
+    driver: bridge
