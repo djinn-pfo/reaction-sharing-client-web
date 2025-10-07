@@ -444,7 +444,7 @@ export const SessionView: React.FC = () => {
 
             <div className="flex flex-col lg:flex-row gap-6 items-start">
               {/* 正規化後ランドマーク3D表示 */}
-              <div className="flex-1 max-w-md mx-auto">
+              <div className="flex-1 w-full max-w-md mx-auto">
                 {/* 非表示のビデオ要素（MediaPipe処理用） */}
                 <video
                   ref={localVideoRef}
@@ -457,8 +457,8 @@ export const SessionView: React.FC = () => {
                 {/* 3Dビジュアライゼーション */}
                 <NormalizedLandmarksViewer
                   normalizedData={normalizationData}
-                  width={600}
-                  height={600}
+                  width={Math.min(400, window.innerWidth - 60)}
+                  height={Math.min(400, window.innerWidth - 60)}
                 />
               </div>
 
@@ -498,7 +498,7 @@ export const SessionView: React.FC = () => {
                   key={userId}
                   emotionData={emotions}
                   userId={userId}
-                  width={400}
+                  width={Math.min(400, window.innerWidth - 80)}
                   height={200}
                 />
               ))}
