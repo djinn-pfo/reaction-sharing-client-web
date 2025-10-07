@@ -46,7 +46,7 @@ export const IntensityChart: React.FC<IntensityChartProps> = ({
       ctx.fillStyle = '#9ca3af'; // gray-400
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText((i * 2000).toString(), 35, y + 4); // 0, 2000, 4000, 6000, 8000
+      ctx.fillText((i * 20).toString(), 35, y + 5); // 0, 20, 40, 60, 80, 100
     }
 
     // データがない場合
@@ -78,7 +78,7 @@ export const IntensityChart: React.FC<IntensityChartProps> = ({
 
     filteredData.forEach((data, index) => {
       const x = 40 + (index / (filteredData.length - 1)) * (width - 60);
-      const y = 20 + (1 - (Math.min(data.intensity, 8000) / 8000)) * (height - 40); // 0-8000の範囲で正規化
+      const y = 20 + (1 - (Math.min(data.intensity, 100) / 100)) * (height - 40); // 0-8000の範囲で正規化
 
       if (index === 0) {
         ctx.moveTo(x, y);
@@ -94,7 +94,7 @@ export const IntensityChart: React.FC<IntensityChartProps> = ({
     // データポイントを描画
     filteredData.forEach((data, index) => {
       const x = 40 + (index / (filteredData.length - 1)) * (width - 60);
-      const y = 20 + (1 - (Math.min(data.intensity, 8000) / 8000)) * (height - 40);
+      const y = 20 + (1 - (Math.min(data.intensity, 100) / 100)) * (height - 40);
 
       ctx.fillStyle = getIntensityColor(data.intensity);
       ctx.beginPath();
@@ -109,7 +109,7 @@ export const IntensityChart: React.FC<IntensityChartProps> = ({
       ctx.font = 'bold 16px sans-serif';
       ctx.textAlign = 'left';
       ctx.fillText(
-        `${userId}: ${Math.round(latestData.intensity)}/6000`,
+        `${userId}: ${Math.round(latestData.intensity)}/100`,
         50,
         30
       );
@@ -149,8 +149,8 @@ export const IntensityChart: React.FC<IntensityChartProps> = ({
 
 // 強度に応じた色を取得
 function getIntensityColor(intensity: number): string {
-  if (intensity > 4200) return '#10b981'; // green-500 (高強度)
-  if (intensity > 2400) return '#f59e0b'; // yellow-500 (中強度)
+  if (intensity > 70) return '#10b981'; // green-500 (高強度)
+  if (intensity > 40) return '#f59e0b'; // yellow-500 (中強度)
   return '#6b7280'; // gray-500 (低強度)
 }
 

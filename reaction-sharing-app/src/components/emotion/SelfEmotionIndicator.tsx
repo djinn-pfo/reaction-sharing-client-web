@@ -14,8 +14,8 @@ export const SelfEmotionIndicator: React.FC<SelfEmotionIndicatorProps> = ({
   // デバッグ用ログ
   console.log('🎨 SelfEmotionIndicator props:', { intensity, laughLevel, isActive });
   const getIntensityColor = (value: number): string => {
-    if (value > 4200) return 'bg-green-500';
-    if (value > 2400) return 'bg-yellow-500';
+    if (value > 70) return 'bg-green-500';
+    if (value > 40) return 'bg-yellow-500';
     return 'bg-gray-500';
   };
 
@@ -48,13 +48,13 @@ export const SelfEmotionIndicator: React.FC<SelfEmotionIndicatorProps> = ({
             <div className="flex justify-between items-center mb-2">
               <span className="text-sm text-gray-300">感情強度</span>
               <span className="text-lg font-bold text-white">
-                {Math.round(intensity)}/8000
+                {Math.round(intensity)}/100
               </span>
             </div>
             <div className="w-full bg-gray-600 rounded-full h-3">
               <div
                 className={`h-3 rounded-full transition-all duration-300 ${getIntensityColor(intensity)}`}
-                style={{ width: `${Math.min((intensity / 8000) * 100, 100)}%` }}
+                style={{ width: `${Math.min((intensity / 100) * 100, 100)}%` }}
               ></div>
             </div>
           </div>
