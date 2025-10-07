@@ -173,25 +173,7 @@ export const NormalizedLandmarksViewer: React.FC<NormalizedLandmarksViewerProps>
         </div>
       )}
 
-      {/* 情報表示 */}
-      {normalizedData && normalizedData.normalized && (
-        <div className="mt-2 text-xs text-gray-400 space-y-1">
-          <div>ランドマーク数: {normalizedData.normalized.length}</div>
-          <div>
-            Rotation: Yaw={normalizedData.rotation?.yaw?.toFixed(1) || 0}°
-            Pitch={normalizedData.rotation?.pitch?.toFixed(1) || 0}°
-            Roll={normalizedData.rotation?.roll?.toFixed(1) || 0}°
-          </div>
-          <div>
-            Scale: {normalizedData.scaleFactor?.x?.toFixed(3) || 1}
-          </div>
-          <div>
-            BBox: {normalizedData.boundingBox?.width?.toFixed(0) || 0} ×
-            {normalizedData.boundingBox?.height?.toFixed(0) || 0} ×
-            {normalizedData.boundingBox?.depth?.toFixed(0) || 0}
-          </div>
-        </div>
-      )}
+      {/* デバッグ情報は非表示 */}
     </div>
   );
 };

@@ -5,8 +5,6 @@ import { LoadingSpinner } from '../common/LoadingSpinner';
 import { useSignaling } from '../../hooks/useSignaling';
 import { useWebRTC } from '../../contexts/WebRTCContext';
 import { useMediaPipe } from '../../hooks/useMediaPipe';
-import { SelfEmotionIndicator } from '../emotion/SelfEmotionIndicator';
-import { ParticipantEmotionBar } from '../emotion/ParticipantEmotionBar';
 import { IntensityChart } from '../charts/IntensityChart';
 import { NormalizedLandmarksViewer } from '../visualization/NormalizedLandmarksViewer';
 
@@ -15,10 +13,6 @@ export const SessionView: React.FC = () => {
   const navigate = useNavigate();
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
-  const [selfEmotionData, setSelfEmotionData] = useState<{
-    intensity: number;
-    laughLevel: "low" | "medium" | "high";
-  }>({ intensity: 0, laughLevel: 'low' });
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const animationFrameRef = useRef<number | undefined>(undefined);
   const initializationRef = useRef<boolean>(false);
@@ -43,7 +37,6 @@ export const SessionView: React.FC = () => {
     landmarks,
     normalizedLandmarks,
     normalizationData,
-    compressionStats,
     processVideoFrame,
     error: mediaPipeError
   } = useMediaPipe({
@@ -89,34 +82,7 @@ export const SessionView: React.FC = () => {
   // ユーザー名を取得
   const userName = localStorage.getItem('userName') || 'Anonymous';
 
-  // バックエンドから受信した感情データを監視（自分のものも含む）
-  useEffect(() => {
-    // 全ての受信した感情データをチェック
-    console.log('🔍 All received emotions:', Array.from(receivedEmotions.entries()));
-
-    // 自分のデータを探す（userNameまたは'debug'）
-    const possibleUserIds = [userName, 'debug']; // バックエンドが'debug'を返す場合に対応
-    let myEmotions = null;
-    let myUserId = null;
-
-    for (const userId of possibleUserIds) {
-      const emotions = receivedEmotions.get(userId);
-      if (emotions && emotions.length > 0) {
-        myEmotions = emotions;
-        myUserId = userId;
-        break;
-      }
-    }
-
-    if (myEmotions) {
-      const latestEmotion = myEmotions[myEmotions.length - 1];
-      console.log(`🎯 Received emotion from backend via WebSocket (userId: ${myUserId}):`, latestEmotion);
-      setSelfEmotionData({
-        intensity: latestEmotion.intensity,
-        laughLevel: latestEmotion.laughLevel
-      });
-    }
-  }, [receivedEmotions, userName]);
+  // 感情データの状態管理は削除（インジケーター非表示のため）
 
   // 感情検出のアニメーションループ（制限付き）
   useEffect(() => {
@@ -309,45 +275,7 @@ export const SessionView: React.FC = () => {
     navigate('/');
   };
 
-  // デモ用の他の参加者データ
-  const demoParticipants = [
-    {
-      id: 'participant-1',
-      username: '田中さん',
-      emotion: {
-        happiness: 0.7,
-        sadness: 0.1,
-        surprise: 0.05,
-        anger: 0.05,
-        neutral: 0.1
-      },
-      isOnline: true
-    },
-    {
-      id: 'participant-2',
-      username: '佐藤さん',
-      emotion: {
-        happiness: 0.2,
-        sadness: 0.3,
-        surprise: 0.1,
-        anger: 0.1,
-        neutral: 0.3
-      },
-      isOnline: true
-    },
-    {
-      id: 'participant-3',
-      username: '山田さん',
-      emotion: {
-        happiness: 0.1,
-        sadness: 0.1,
-        surprise: 0.6,
-        anger: 0.1,
-        neutral: 0.1
-      },
-      isOnline: false
-    }
-  ];
+  // activeParticipantsは現在使用していないため削除
 
   const getConnectionStatusColor = () => {
     switch (connectionState) {
@@ -464,25 +392,7 @@ export const SessionView: React.FC = () => {
 
               {/* 自分の感情データとコントロール */}
               <div className="flex-1 space-y-4">
-                {/* 自分の感情インジケーター */}
-                <SelfEmotionIndicator
-                  intensity={selfEmotionData.intensity}
-                  laughLevel={selfEmotionData.laughLevel}
-                  isActive={!!(isMediaPipeReady && landmarks && landmarks.length > 0)}
-                />
-
-                {/* システム情報 */}
-                <div className="bg-gray-700 rounded-lg p-4">
-                  <h3 className="text-sm font-medium mb-2">システム状況</h3>
-                  <div className="text-sm text-gray-400 space-y-1">
-                    <div>MediaPipe: {isMediaPipeReady ? '✅ 初期化済み' : '⏳ 初期化中...'}</div>
-                    <div>ランドマーク: {landmarks?.length || 0}点</div>
-                    <div>接続中の感情データ: {receivedEmotions.size}ユーザー</div>
-                    <div className="text-xs text-gray-500 mt-2">
-                      💡 ランドマークをWebSocketでバックエンドに送信し、処理結果を受信しています
-                    </div>
-                  </div>
-                </div>
+                {/* 感情インジケーターとシステム情報は非表示 */}
               </div>
             </div>
           </div>
@@ -516,57 +426,9 @@ export const SessionView: React.FC = () => {
             </div>
           </div>
 
-          {/* 他の参加者の感情表示エリア（デモ） */}
-          <div className="bg-gray-800 rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">参加者の感情状態（デモ）</h2>
+          {/* 他の参加者の感情インジケーターは非表示 */}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {demoParticipants.map((participant) => (
-                <ParticipantEmotionBar
-                  key={participant.id}
-                  username={participant.username}
-                  emotion={participant.emotion}
-                  isOnline={participant.isOnline}
-                />
-              ))}
-            </div>
-          </div>
-
-          {/* システム情報 */}
-          <div className="bg-gray-800 rounded-lg p-4">
-            <div className="flex flex-wrap gap-4 justify-center text-sm">
-              <div className="flex items-center gap-2">
-                <span>WebSocket:</span>
-                <span className={getConnectionStatusColor()}>
-                  {getConnectionStatusText()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>MediaPipe:</span>
-                <span className={isMediaPipeReady ? 'text-green-400' : 'text-yellow-400'}>
-                  {isMediaPipeReady ? '初期化済み' : '初期化中...'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>カメラ:</span>
-                <span className={webrtcState.localStream ? 'text-green-400' : 'text-gray-400'}>
-                  {webrtcState.localStream ? '取得済み' : '未取得'}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>参加者:</span>
-                <span className="text-blue-400">
-                  {demoParticipants.filter(p => p.isOnline).length + 1}人
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span>圧縮率:</span>
-                <span className={compressionStats.isInitialized ? 'text-green-400' : 'text-gray-400'}>
-                  {compressionStats.isInitialized ? `${Math.round(compressionStats.compressionRatio * 100)}%` : '未開始'}
-                </span>
-              </div>
-            </div>
-          </div>
+          {/* システム情報は非表示 */}
         </div>
       </div>
     </div>

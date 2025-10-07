@@ -54,14 +54,14 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
       return;
     }
 
-    // ユーザーIDを生成（シンプルな形式でテスト）
-    const userId = 'debug'; // デバッグ用に固定値を使用
+    // ユーザーIDを取得（localStorageから）
+    const userId = localStorage.getItem('userName') || 'Anonymous';
 
     // WebSocketクライアント作成
     console.log('Creating WebSocket with userId:', userId);
     wsClientRef.current = new WebSocketClient({
       url: config.signalingUrl,
-      userId: userId,  // userIdを追加
+      userId: userId,
       reconnectInterval: 5000,
       maxReconnectAttempts: 1, // 1回だけ接続試行
       heartbeatInterval: 0, // ハートビートを無効化してテスト
@@ -122,53 +122,28 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
       console.log('😊 Received emotion broadcast from:', message.from);
       console.log('📊 Emotion data:', message.data);
 
-      // バックエンドの実際の形式: landmarks_processed形式
-      const { userId, timestamp, type: dataType, data: emotionData } = message.data;
+      // バックエンドからのemotion.broadcast形式
+      // { type: "emotion.broadcast", from: "user_A", data: { userId, intensity, confidence, timestamp } }
+      const emotionData = message.data;
+      const userId = emotionData.userId || message.from;
+      const timestamp = emotionData.timestamp || Date.now();
+      const intensity = emotionData.intensity || 0;
+      const confidence = emotionData.confidence || 0;
+      const velocity = emotionData.velocity || 0;
+      const features = emotionData.features || {};
 
-      // 受信したデータ構造を確認
-      console.log('🔍 Received data structure:', { userId, timestamp, dataType, emotionData });
-
-      let intensity, confidence, velocity, features;
-
-      // 新しいProcessResult構造体の形式をチェック
-      if (emotionData?.intensity !== undefined) {
-        // ProcessResult構造体形式
-        intensity = emotionData.intensity || 0;
-        confidence = emotionData.confidence || 0;
-        velocity = emotionData.velocity || 0;
-        features = emotionData.features || {};
-        console.log('📊 ProcessResult format detected:', { intensity, confidence, velocity, features });
-      } else if (dataType === 'landmarks_processed' && emotionData?.unified) {
-        // 旧形式（unified）
-        intensity = emotionData.unified.value || 0;
-        confidence = emotionData.unified.confidence || 0;
-        console.log('📊 Legacy unified format detected:', { intensity, confidence });
-      } else {
-        // 直接形式
-        intensity = message.data.intensity || 0;
-        confidence = message.data.confidence || 0;
-        console.log('📊 Direct format detected:', { intensity, confidence });
-      }
+      console.log('🔍 Parsed emotion data:', { userId, intensity, confidence, velocity, timestamp });
 
       console.log(`🎯 Extracted values: intensity=${intensity}, confidence=${confidence}`);
 
-      // 感情データが0の場合の詳細デバッグ
-      if (intensity === 0) {
-        console.log('⚠️ Zero intensity detected. Data structure check:');
-        console.log('- dataType:', dataType);
-        console.log('- emotionData:', emotionData);
-        console.log('- emotionData.unified:', emotionData?.unified);
-        console.log('- Full message.data:', message.data);
-      }
-
       const newEmotion = {
         userId,
-        timestamp: timestamp || Date.now(),
+        timestamp,
         intensity: Math.abs(intensity), // 負の値の場合は絶対値を取る
-        laughLevel: Math.abs(intensity) > 4200 ? 'high' : Math.abs(intensity) > 1800 ? 'medium' : 'low',
-        confidence: confidence || 0,
-        velocity: velocity || 0,
-        features: features || {}
+        laughLevel: Math.abs(intensity) > 70 ? 'high' : Math.abs(intensity) > 40 ? 'medium' : 'low',
+        confidence,
+        velocity,
+        features
       };
 
       // 受信した感情データを状態に保存
