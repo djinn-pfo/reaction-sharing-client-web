@@ -55,6 +55,8 @@ export const SessionView: React.FC = () => {
 
     if (viewerReactionSenderRef.current) {
       viewerReactionSenderRef.current.handleBroadcastTimestamp(message);
+      // タイムスタンプを受信したら、リアクション送信を有効化
+      setHasTimestamp(true);
     }
   }, []);
 
@@ -103,6 +105,7 @@ export const SessionView: React.FC = () => {
       const participantNumber = message.data?.participantNumber;
       const participantCount = message.data?.participantCount;
       const userId = message.data?.userId || message.userId;
+      const receivedBroadcasterUserId = message.data?.broadcasterUserId;
 
       console.log('[SessionView] 📊 Role determination from backend:', {
         isBroadcaster: isBroadcasterRole,
@@ -110,11 +113,18 @@ export const SessionView: React.FC = () => {
         participantNumber,
         participantCount,
         userId,
+        broadcasterUserId: receivedBroadcasterUserId,
         messageFrom: message.from
       });
 
       console.log(`[SessionView] 🎬 Setting isBroadcaster to: ${isBroadcasterRole}`);
       setIsBroadcaster(isBroadcasterRole);
+
+      // Viewerの場合、配信者のユーザーIDを設定
+      if (!isBroadcasterRole && receivedBroadcasterUserId) {
+        console.log(`[SessionView] 📡 Setting broadcasterUserId to: ${receivedBroadcasterUserId}`);
+        setBroadcasterUserId(receivedBroadcasterUserId);
+      }
     }, []),
   });
 
@@ -146,7 +156,7 @@ export const SessionView: React.FC = () => {
 
     // 視聴者の場合のみ: リアクションを送信
     if (!isBroadcaster && isConnected && landmarks.length > 0) {
-      // 通常の感情データ送信
+      // リアルタイムグラフ用の感情データ送信（既存システム）
       const success = sendEmotionData(normalizedLandmarks || landmarks, userName, 0.9);
       if (success) {
         lastSendTimeRef.current = now;
@@ -155,17 +165,28 @@ export const SessionView: React.FC = () => {
         console.log(`📤 Viewer sent emotion data: ${landmarkCount} landmarks (normalized: ${isNormalized})`);
       }
 
-      // タイムスタンプ付きリアクション送信
+      // タイムスタンプ付きリアクション送信（新システム: レイテンシー計測用）
       if (viewerReactionSenderRef.current && hasTimestamp) {
         if (now - lastReactionSendTimeRef.current >= reactionSendInterval) {
-          // 簡易的な感情強度計算（実際はバックエンドで計算）
-          const intensity = Math.floor(Math.random() * 100);
-          const confidence = 0.9;
+          // 自分の最新の感情データから強度を取得
+          let intensity = 50; // デフォルト値
+          let confidence = 0.9;
+
+          // receivedEmotions から自分（userName）の最新データを取得
+          const myEmotions = receivedEmotions.get(userName);
+          if (myEmotions && myEmotions.length > 0) {
+            const latestEmotion = myEmotions[myEmotions.length - 1];
+            intensity = latestEmotion.intensity;
+            confidence = latestEmotion.confidence;
+            console.log(`[SessionView] Viewer: Using actual emotion data - intensity=${intensity}, confidence=${confidence}`);
+          } else {
+            console.warn('[SessionView] Viewer: No emotion data available, using default intensity=50');
+          }
 
           const reactionSuccess = viewerReactionSenderRef.current.sendReactionWithTimestamp(intensity, confidence);
           if (reactionSuccess) {
             lastReactionSendTimeRef.current = now;
-            console.log('[SessionView] Viewer: Sent reaction');
+            console.log('[SessionView] Viewer: Sent reaction with timestamp, intensity=', intensity);
           }
         }
       }
@@ -376,6 +397,16 @@ export const SessionView: React.FC = () => {
 
   // Ion-SFU初期化（役割決定後に実行）
   useEffect(() => {
+    console.log('[Ion-SFU] useEffect triggered with:', {
+      roomId,
+      isBroadcaster,
+      isAuthenticated,
+      hasLocalStream: !!localStream,
+      broadcasterUserId,
+      hasViewerReactionSender: !!viewerReactionSenderRef.current,
+      hasTimestampSync: !!timestampSyncRef.current,
+    });
+
     if (!roomId) return;
     if (isBroadcaster === undefined) {
       console.log('[Ion-SFU] ⏳ Waiting for role determination...');
@@ -669,30 +700,54 @@ export const SessionView: React.FC = () => {
               <h2 className="text-lg font-semibold mb-4">受信したリアクション</h2>
 
               {receivedReactions.length > 0 ? (
-                <div className="space-y-3">
-                  <div className="text-3xl font-bold text-green-400">
-                    💚 {receivedReactions.length} 件
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-                    {receivedReactions.slice(-20).reverse().map((reaction, index) => (
-                      <div key={index} className="bg-gray-700 rounded p-3 text-sm">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="font-medium text-blue-400">{reaction.data.userId}</span>
-                          <span className="text-xs text-gray-400">
-                            {new Date(reaction.data.reactionSentTime).toLocaleTimeString()}
-                          </span>
+                (() => {
+                  const latestReaction = receivedReactions[receivedReactions.length - 1];
+                  const intensity = latestReaction.data.intensity;
+                  const userId = latestReaction.data.userId;
+                  const latency = latestReaction.metrics.broadcastToReceivedMs;
+                  const isGoodLatency = latestReaction.metrics.withinConstraint;
+
+                  return (
+                    <div className="space-y-4">
+                      {/* ユーザー情報 */}
+                      <div className="flex items-center justify-between">
+                        <span className="text-lg font-medium text-blue-400">{userId}</span>
+                        <span className="text-sm text-gray-400">
+                          総受信: {receivedReactions.length}件
+                        </span>
+                      </div>
+
+                      {/* Intensity インジケータ */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-gray-400">感情強度</span>
+                          <span className="text-4xl font-bold text-green-400">{intensity}</span>
                         </div>
-                        <div className="text-2xl">💚</div>
-                        <div className="mt-2 text-xs text-gray-400">
-                          遅延: {reaction.metrics.broadcastToReceivedMs.toFixed(0)}ms
+
+                        {/* プログレスバー */}
+                        <div className="w-full bg-gray-700 rounded-full h-8 overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-green-600 to-green-400 h-full transition-all duration-300 flex items-center justify-center text-white font-semibold"
+                            style={{ width: `${intensity}%` }}
+                          >
+                            {intensity}%
+                          </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
+
+                      {/* レイテンシ情報（小さく表示） */}
+                      <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-700">
+                        <span>遅延</span>
+                        <span className={isGoodLatency ? 'text-green-500' : 'text-red-500'}>
+                          {latency.toFixed(0)}ms {isGoodLatency ? '✓' : '⚠️'}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()
               ) : (
                 <div className="text-center py-8">
-                  <div className="text-4xl mb-4">💚</div>
+                  <div className="text-4xl mb-4">💤</div>
                   <h3 className="text-lg font-medium mb-2">リアクションを待機中</h3>
                   <p className="text-gray-400 text-sm">
                     視聴者からのリアクションがここに表示されます
