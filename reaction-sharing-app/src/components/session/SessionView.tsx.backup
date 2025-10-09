@@ -8,11 +8,10 @@ import { IntensityChart } from '../charts/IntensityChart';
 import { NormalizedLandmarksViewer } from '../visualization/NormalizedLandmarksViewer';
 import { BroadcastTimestampSync, ReactionReceiver } from '../../services/broadcast';
 import { ViewerReactionSender } from '../../services/viewer';
-import { useIonSession } from '../../hooks/useIonSession';
+import { IonSfuService } from '../../services/ionSfu/IonSfuService';
 import { AuthService } from '../../services/auth/AuthService';
 import type { BroadcastTimestampMessage, EmotionWithTimestampMessage } from '../../types/signaling';
 import type { ReceivedReactionWithMetrics } from '../../types/broadcast';
-import type { IonMessage } from '../../types/ion';
 
 export const SessionView: React.FC = () => {
   const { roomId } = useParams();
@@ -38,8 +37,8 @@ export const SessionView: React.FC = () => {
   const timestampSyncRef = useRef<BroadcastTimestampSync | null>(null);
   const reactionReceiverRef = useRef<ReactionReceiver | null>(null);
   const viewerReactionSenderRef = useRef<ViewerReactionSender | null>(null);
+  const ionSfuServiceRef = useRef<IonSfuService | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   // ユーザー名を取得
   const userName = localStorage.getItem('userName') || 'Anonymous';
@@ -51,10 +50,16 @@ export const SessionView: React.FC = () => {
 
   // Handle broadcast timestamp (for viewers)
   const handleBroadcastTimestamp = useCallback((message: BroadcastTimestampMessage) => {
-    // console.log('[SessionView] Received broadcast timestamp:', message);
+    console.log('[SessionView] Received broadcast timestamp:', message);
+
+    // 配信者のIDを保存
+    if (message.from) {
+      setBroadcasterUserId(message.from);
+    }
 
     if (viewerReactionSenderRef.current) {
       viewerReactionSenderRef.current.handleBroadcastTimestamp(message);
+      setHasTimestamp(true);
     }
   }, []);
 
@@ -63,16 +68,6 @@ export const SessionView: React.FC = () => {
     console.log('[SessionView] Received emotion with timestamp:', message);
     if (reactionReceiverRef.current) {
       reactionReceiverRef.current.handleReactionWithMetrics(message);
-    }
-  }, []);
-
-  // Handle Ion messages
-  const ionSessionHandlerRef = useRef<((msg: IonMessage) => void) | null>(null);
-  const handleIonMessage = useCallback((message: IonMessage) => {
-    console.log('📨 [SessionView] Received Ion message:', message.type);
-    // Route to Ion session manager via ref
-    if (ionSessionHandlerRef.current) {
-      ionSessionHandlerRef.current(message);
     }
   }, []);
 
@@ -87,13 +82,11 @@ export const SessionView: React.FC = () => {
     sendEmotionData,
     sendBroadcastTimestamp,
     sendEmotionWithTimestamp,
-    sendSignalingMessage,
     getWebSocketState,
   } = useSignaling({
     enableWebRTC: false, // WebRTC now handled by Ion-SFU
     onBroadcastTimestamp: handleBroadcastTimestamp,
     onEmotionWithTimestamp: handleEmotionWithTimestamp,
-    onIonMessage: handleIonMessage,
     onRoomJoined: useCallback((message: any) => {
       console.log('[SessionView] 🎯 Room joined message received:', message);
 
@@ -254,35 +247,35 @@ export const SessionView: React.FC = () => {
 
   // 統合された初期化処理: 認証 → WebSocket → カメラ → ルーム参加 → Ion-SFU
   useEffect(() => {
-    console.log('[DEBUG][CHECK] useEffect triggered, roomId:', roomId);
-
     if (!roomId) {
-      console.log('[DEBUG][CHECK] No roomId, skipping');
+      console.log('roomIdが無いため初期化をスキップ');
       return;
     }
 
     // 重複初期化を防ぐ
     if (initializedRoomRef.current === roomId && !cancelledRef.current) {
-      console.log('[DEBUG][CHECK] Already initialized for this room, skipping');
+      console.log('🔄 初期化は既に実行済み - スキップ');
       return;
     }
 
-    console.log('[DEBUG][CHECK] Starting initialization...');
     cancelledRef.current = false;
     initializedRoomRef.current = roomId;
 
     const initializeAll = async () => {
+      console.log('🚀 統合初期化開始:', { roomId });
       setIsJoining(true);
       setJoinError(null);
 
       try {
         // ========== Step 1: 認証 ==========
-        console.log('[DEBUG][CHECK] Calling ensureAuthenticated...');
+        console.log('🔑 Step 1: Ensuring authentication...');
         await AuthService.ensureAuthenticated(userName);
         if (cancelledRef.current) return;
         setIsAuthenticated(true);
+        console.log('✅ Authentication ready');
 
         // ========== Step 2: WebSocket接続 ==========
+        console.log('🔌 Step 2: WebSocket connection...');
         if (connectionState === 'disconnected') {
           await connect();
           if (cancelledRef.current) return;
@@ -292,21 +285,26 @@ export const SessionView: React.FC = () => {
         if (!connectionSuccess) {
           throw new Error('WebSocket接続のタイムアウト');
         }
+        console.log('✅ WebSocket connected');
 
         // ========== Step 3: カメラストリーム取得 ==========
+        console.log('📹 Step 3: Getting camera stream...');
         let stream = localStream;
         if (!stream) {
           stream = await navigator.mediaDevices.getUserMedia({
             video: { width: 640, height: 480 },
-            audio: true, // Enable audio for broadcasters (Ion-SFU requires it)
+            audio: false,
           });
           if (cancelledRef.current) return;
           setLocalStream(stream);
         }
+        console.log('✅ Camera stream ready');
 
         // ========== Step 4: ルーム参加 ==========
+        console.log('🏠 Step 4: Joining room...');
         await joinRoom(roomId, userName);
         if (cancelledRef.current) return;
+        console.log('✅ Room joined - waiting for role determination...');
 
         // 役割が決定されるまで待機
         // （onRoomJoined コールバックで setIsBroadcaster が呼ばれる）
@@ -331,7 +329,10 @@ export const SessionView: React.FC = () => {
       if (roomId && isConnected) {
         leaveRoom(roomId);
       }
-      // Ion session cleanup handled by useIonSession hook
+      if (ionSfuServiceRef.current) {
+        ionSfuServiceRef.current.cleanup();
+        ionSfuServiceRef.current = null;
+      }
       if (timestampSyncRef.current) {
         timestampSyncRef.current.stopPeriodicSync();
         timestampSyncRef.current = null;
@@ -342,38 +343,6 @@ export const SessionView: React.FC = () => {
     };
   }, [roomId]);
 
-  // Ion-SFU session via WebSocket
-  const ionSession = useIonSession({
-    roomId: roomId || '',
-    userId: userName,
-    sendIonMessage: sendSignalingMessage,
-    onIonMessage: handleIonMessage,
-    autoJoin: false, // Manual join after role determination
-    noPublish: isBroadcaster === false, // Viewer does not publish
-    noSubscribe: isBroadcaster === true, // Broadcaster does not subscribe
-  });
-
-  // Store handleMessage function for routing
-  useEffect(() => {
-    ionSessionHandlerRef.current = ionSession.handleMessage;
-  }, [ionSession.handleMessage]);
-
-  // Handle remote streams from Ion-SFU
-  useEffect(() => {
-    if (ionSession.remoteStreams.length > 0) {
-      const remoteStream = ionSession.remoteStreams[0];
-      console.log('[SessionView] 📺 Received remote stream from Ion-SFU');
-      setRemoteStream(remoteStream);
-
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-        remoteVideoRef.current.play().catch((error) => {
-          console.log('Remote video autoplay failed:', error);
-        });
-      }
-    }
-  }, [ionSession.remoteStreams]);
-
   // Ion-SFU初期化（役割決定後に実行）
   useEffect(() => {
     if (!roomId) return;
@@ -383,10 +352,6 @@ export const SessionView: React.FC = () => {
     }
     if (!isAuthenticated) {
       console.log('[Ion-SFU] ⏳ Waiting for authentication...');
-      return;
-    }
-    if (!localStream) {
-      console.log('[Ion-SFU] ⏳ Waiting for local stream...');
       return;
     }
 
@@ -411,11 +376,12 @@ export const SessionView: React.FC = () => {
           timestampSyncRef.current.startPeriodicSync(50);
           console.log('[SessionView] Broadcaster services initialized');
 
-          // Publish video stream via Ion-SFU (WebSocket)
-          if (!ionSession.isJoined) {
+          // Publish video stream via Ion-SFU
+          if (localStream && !ionSfuServiceRef.current) {
             try {
-              console.log('[SessionView] 📡 Starting Ion-SFU publish (WebSocket)...');
-              await ionSession.join(localStream);
+              console.log('[SessionView] 📡 Starting Ion-SFU publish...');
+              ionSfuServiceRef.current = new IonSfuService(roomId, userName);
+              await ionSfuServiceRef.current.publish(localStream);
               console.log('[SessionView] ✅ Ion-SFU publish completed');
             } catch (error) {
               console.error('[SessionView] ❌ Ion-SFU publish failed:', error);
@@ -435,11 +401,20 @@ export const SessionView: React.FC = () => {
           );
           console.log('[SessionView] Viewer services initialized');
 
-          // Subscribe to broadcaster's video stream via Ion-SFU (WebSocket)
-          if (!ionSession.isJoined) {
+          // Subscribe to broadcaster's video stream via Ion-SFU
+          if (!ionSfuServiceRef.current) {
             try {
-              console.log('[SessionView] 📡 Starting Ion-SFU subscribe (WebSocket)...');
-              await ionSession.join(localStream);
+              console.log('[SessionView] 📡 Starting Ion-SFU subscribe...');
+              ionSfuServiceRef.current = new IonSfuService(roomId, userName);
+              await ionSfuServiceRef.current.subscribe((remoteStream) => {
+                console.log('[SessionView] 📺 Received remote stream from Ion-SFU');
+                if (remoteVideoRef.current) {
+                  remoteVideoRef.current.srcObject = remoteStream;
+                  remoteVideoRef.current.play().catch((error) => {
+                    console.log('Remote video autoplay failed:', error);
+                  });
+                }
+              });
               console.log('[SessionView] ✅ Ion-SFU subscribe completed');
             } catch (error) {
               console.error('[SessionView] ❌ Ion-SFU subscribe failed:', error);
@@ -450,7 +425,7 @@ export const SessionView: React.FC = () => {
     };
 
     initializeServices();
-  }, [isBroadcaster, roomId, userName, broadcasterUserId, localStream, sendBroadcastTimestamp, sendEmotionWithTimestamp, isAuthenticated, ionSession]);
+  }, [isBroadcaster, roomId, userName, broadcasterUserId, localStream, sendBroadcastTimestamp, sendEmotionWithTimestamp, isAuthenticated]);
 
   // WebSocket接続完了を待機する関数
   const waitForConnection = useCallback(async (timeout = 5000): Promise<boolean> => {
@@ -492,6 +467,121 @@ export const SessionView: React.FC = () => {
     });
   }, []); // 依存配列を空にして再作成を防ぐ
 
+  // セッション初期化（WebSocket接続 + WebRTC）
+  useEffect(() => {
+    console.log('[useEffect] セッション初期化 useEffect triggered:', {
+      roomId,
+      initializedRoomRef: initializedRoomRef.current,
+      cancelledRef: cancelledRef.current
+    });
+
+    if (!roomId) {
+      console.log('[useEffect] roomIdが無いため初期化をスキップ');
+      return;
+    }
+
+    // 条件チェックを一時的に無効化してテスト
+    // if (initializedRoomRef.current === roomId && !cancelledRef.current) {
+    //   console.log('🔄 初期化は既に実行済み - スキップ');
+    //   return;
+    // }
+
+    console.log('[useEffect] 初期化処理を開始します');
+    cancelledRef.current = false;
+    initializedRoomRef.current = roomId;
+
+    const initializeSession = async () => {
+      console.log('🚀 セッション初期化開始:', { roomId, connectionState, isConnected });
+      setIsJoining(true);
+      setJoinError(null);
+
+      try {
+        // 0. 認証トークンを確保
+        console.log('🔑 Ensuring authentication...');
+        await AuthService.ensureAuthenticated(userName);
+        if (cancelledRef.current) return;
+        setIsAuthenticated(true);
+        console.log('✅ Authentication ready');
+
+        // 1. WebSocket接続
+        console.log('🔍 Checking connection state:', connectionState);
+        if (connectionState === 'disconnected') {
+          console.log('🔌 WebSocket接続を開始...');
+          await connect();
+          if (cancelledRef.current) return;
+          console.log('✅ WebSocket接続完了');
+        } else {
+          console.log('⏭️ WebSocket already connected or connecting, state:', connectionState);
+        }
+
+        // 接続完了を待機
+        console.log('⏳ WebSocket接続完了を待機...');
+        const connectionSuccess = await waitForConnection(15000); // 15秒に延長
+        if (cancelledRef.current) return;
+        if (!connectionSuccess) {
+          console.log('❌ WebSocket接続タイムアウト - 現在の状態:', { connectionState, isConnected });
+          throw new Error('WebSocket接続のタイムアウト');
+        }
+
+        // 2. カメラストリーム取得
+        if (!localStream) {
+          console.log('📹 カメラストリーム取得を開始...');
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480 },
+            audio: false,
+          });
+          if (cancelledRef.current) return;
+          setLocalStream(stream);
+          console.log('✅ カメラストリーム取得完了');
+        }
+
+        // 3. ルーム参加
+        console.log('🏠 ルーム参加を開始...', { roomId, userName });
+        await joinRoom(roomId, userName);
+        if (cancelledRef.current) return;
+        console.log('✅ ルーム参加完了 - 役割は room-joined メッセージで決定されます');
+
+        console.log('セッション初期化完了');
+      } catch (error) {
+        if (!cancelledRef.current) {
+          console.error('セッション初期化エラー:', error);
+          setJoinError(error instanceof Error ? error.message : 'セッションの初期化に失敗しました');
+        }
+      } finally {
+        if (!cancelledRef.current) {
+          console.log('isJoiningをfalseに設定');
+          setIsJoining(false);
+        }
+      }
+    };
+
+    initializeSession();
+
+    // クリーンアップ
+    return () => {
+      cancelledRef.current = true;
+      console.log('🧹 SessionView cleanup called');
+      if (roomId && isConnected) {
+        console.log('🚪 Leaving room in cleanup');
+        leaveRoom(roomId);
+      }
+
+      // Ion-SFU cleanup
+      if (ionSfuServiceRef.current) {
+        console.log('🧹 Cleaning up Ion-SFU service');
+        ionSfuServiceRef.current.cleanup();
+        ionSfuServiceRef.current = null;
+      }
+
+      // Local stream cleanup
+      if (localStream) {
+        console.log('🧹 Stopping local stream tracks');
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      // Strict Modeでの重複実行を防ぐため、disconnectをコメントアウト
+      // disconnect();
+    };
+  }, [roomId]); // roomIdのみ - 関数は依存配列から除外
 
   const handleLeaveRoom = () => {
     navigate('/');

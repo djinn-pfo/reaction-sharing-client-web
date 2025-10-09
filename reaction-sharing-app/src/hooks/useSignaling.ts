@@ -8,10 +8,18 @@ import type {
   WebRTCSignalingMessage,
   PeerJoinedMessage,
   PeerLeftMessage,
+  BroadcastTimestampMessage,
+  EmotionWithTimestampMessage,
+  RoomJoinedMessage,
 } from '../types/signaling';
 
 interface UseSignalingOptions {
   autoConnect?: boolean;
+  onBroadcastTimestamp?: (message: BroadcastTimestampMessage) => void;
+  onEmotionWithTimestamp?: (message: EmotionWithTimestampMessage) => void;
+  onRoomJoined?: (message: RoomJoinedMessage) => void;
+  onIonMessage?: (message: any) => void;
+  enableWebRTC?: boolean; // Default: false (disabled for broadcast/viewer modes)
 }
 
 interface UseSignalingReturn {
@@ -23,13 +31,16 @@ interface UseSignalingReturn {
   disconnect: () => void;
   joinRoom: (roomId: string, username: string) => Promise<void>;
   leaveRoom: (roomId: string) => void;
-  sendSignalingMessage: (message: SignalingMessage) => boolean;
+  sendSignalingMessage: (message: SignalingMessage | any) => boolean;
   sendEmotionData: (landmarks: any[], userId: string, confidence?: number, normalizedLandmarks?: any[]) => boolean;
+  sendBroadcastTimestamp: (message: BroadcastTimestampMessage) => boolean;
+  sendEmotionWithTimestamp: (message: EmotionWithTimestampMessage) => boolean;
   getWebSocketState: () => ConnectionState | null;
+  initiateWebRTCConnection: (peerId: string, peerUsername: string) => Promise<void>;
 }
 
 export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingReturn => {
-  const { autoConnect = false } = options;
+  const { autoConnect = false, onBroadcastTimestamp, onEmotionWithTimestamp, onRoomJoined, onIonMessage, enableWebRTC = false } = options;
   const { state: webrtcState, actions: webrtcActions } = useWebRTC();
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -46,82 +57,9 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
   const wsClientRef = useRef<WebSocketClient | null>(null);
   const messageHandlerRef = useRef<MessageHandler | null>(null);
 
-  // WebSocketクライアントとメッセージハンドラーの初期化
-  useEffect(() => {
-    // React Strict Modeでの重複実行を防ぐ
-    if (wsClientRef.current) {
-      console.log('WebSocket client already exists, skipping initialization');
-      return;
-    }
-
-    // ユーザーIDを取得（localStorageから）
-    const userId = localStorage.getItem('userName') || 'Anonymous';
-
-    // WebSocketクライアント作成
-    console.log('Creating WebSocket with userId:', userId);
-    wsClientRef.current = new WebSocketClient({
-      url: config.signalingUrl,
-      userId: userId,
-      reconnectInterval: 5000,
-      maxReconnectAttempts: 1, // 1回だけ接続試行
-      heartbeatInterval: 0, // ハートビートを無効化してテスト
-    });
-
-    // メッセージハンドラー作成
-    messageHandlerRef.current = new MessageHandler();
-
-    // WebSocketイベントハンドラー設定
-    wsClientRef.current.setEventHandlers({
-      onOpen: () => {
-        console.log('Signaling connected');
-        setError(null);
-      },
-      onClose: () => {
-        console.log('Signaling disconnected');
-      },
-      onError: (error) => {
-        console.error('Signaling error:', error);
-        setError('シグナリングサーバーとの接続でエラーが発生しました');
-      },
-      onMessage: (message) => {
-        messageHandlerRef.current?.handleMessage(message);
-      },
-      onConnectionStateChange: (state) => {
-        console.log('🔄 Connection state changed to:', state);
-        console.log('🔍 React setConnectionState called with:', state);
-        setConnectionState(state);
-        console.log('🔍 setConnectionState call completed');
-      },
-    });
-
-    // メッセージハンドラーのコールバック設定
-    messageHandlerRef.current.setCallbacks({
-      onPeerJoined: handlePeerJoined,
-      onPeerLeft: handlePeerLeft,
-      onWebRTCSignaling: handleWebRTCSignaling,
-      onEmotionBroadcast: handleEmotionBroadcast,
-      onEmotionProcessed: handleEmotionProcessed,
-      onError: (errorMessage) => {
-        setError(errorMessage.error.message);
-      },
-    });
-
-    // 自動接続
-    if (autoConnect) {
-      connect();
-    }
-
-    return () => {
-      wsClientRef.current?.disconnect();
-    };
-  }, [autoConnect]);
-
   // 感情データブロードキャスト処理
   const handleEmotionBroadcast = useCallback((message: any) => {
     try {
-      console.log('😊 Received emotion broadcast from:', message.from);
-      console.log('📊 Emotion data:', message.data);
-
       // バックエンドからのemotion.broadcast形式
       // { type: "emotion.broadcast", from: "user_A", data: { userId, intensity, confidence, timestamp } }
       const emotionData = message.data;
@@ -131,10 +69,6 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
       const confidence = emotionData.confidence || 0;
       const velocity = emotionData.velocity || 0;
       const features = emotionData.features || {};
-
-      console.log('🔍 Parsed emotion data:', { userId, intensity, confidence, velocity, timestamp });
-
-      console.log(`🎯 Extracted values: intensity=${intensity}, confidence=${confidence}`);
 
       const newEmotion = {
         userId,
@@ -154,8 +88,6 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
         const updatedEmotions = [...userEmotions, newEmotion].slice(-50);
         newMap.set(userId, updatedEmotions);
 
-        console.log(`📈 Updated emotions for user ${userId}:`, updatedEmotions.length, 'total entries');
-        console.log(`🎯 Latest emotion (intensity: ${intensity}):`, newEmotion);
         return newMap;
       });
 
@@ -171,23 +103,47 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
 
   // ピア参加処理
   const handlePeerJoined = useCallback(async (message: PeerJoinedMessage) => {
+    // enableWebRTCがfalseの場合はWebRTC接続をスキップ
+    if (!enableWebRTC) {
+      console.log('⏭️ Skipping WebRTC connection - enableWebRTC is false');
+      return;
+    }
+
     try {
-      console.log('Peer joined:', message.peerId, message.username);
+      console.log('👥 [WebRTC] Peer joined:', message.peerId, message.username);
+      console.log('👥 [WebRTC] Local stream available:', !!webrtcState.localStream);
 
       // ピア接続を作成
       const connection = await webrtcActions.createPeerConnection(message.peerId, message.username);
+      console.log('✅ [WebRTC] Peer connection created');
+
+      // ICE candidate送信ハンドラーを設定
+      connection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log(`🧊 [WebRTC] Sending ICE candidate to peer ${message.peerId}`);
+          const candidateMessage = MessageHandler.createIceCandidateMessage(
+            currentUsername || 'anonymous',
+            message.peerId,
+            event.candidate.toJSON()
+          );
+          sendSignalingMessage(candidateMessage);
+        }
+      };
 
       // データチャネルを作成（感情データ共有用）
-      connection.createDataChannel('emotions', {
+      const dataChannel = connection.createDataChannel('emotions', {
         ordered: false, // リアルタイム性を重視
       });
+      console.log('✅ [WebRTC] Data channel created:', dataChannel.label);
 
       // ピアを追加
       webrtcActions.addPeer(message.peerId, message.username, connection);
+      console.log('✅ [WebRTC] Peer added to state');
 
       // Offerを作成して送信
       const offer = await connection.createOffer();
       await connection.setLocalDescription(offer);
+      console.log('✅ [WebRTC] Offer created and local description set');
 
       const offerMessage = MessageHandler.createOfferMessage(
         currentUsername || 'anonymous',
@@ -195,13 +151,14 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
         offer
       );
 
-      sendSignalingMessage(offerMessage);
+      const sendSuccess = sendSignalingMessage(offerMessage);
+      console.log('📤 [WebRTC] Offer message sent:', sendSuccess);
 
     } catch (error) {
-      console.error('Failed to handle peer joined:', error);
+      console.error('❌ [WebRTC] Failed to handle peer joined:', error);
       setError('ピア接続の作成に失敗しました');
     }
-  }, [webrtcActions, currentUsername]);
+  }, [webrtcActions, currentUsername, enableWebRTC, webrtcState.localStream]);
 
   // ピア退出処理
   const handlePeerLeft = useCallback((message: PeerLeftMessage) => {
@@ -271,12 +228,29 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
         case 'offer':
         case 'webrtc-offer' as any:
           // Offerを受信
+          console.log('📥 [WebRTC] Received offer from:', message.from);
+
+          // ICE candidate送信ハンドラーを設定（answerer側）
+          connection.onicecandidate = (event) => {
+            if (event.candidate) {
+              console.log(`🧊 [WebRTC] Sending ICE candidate to peer ${message.from}`);
+              const candidateMessage = MessageHandler.createIceCandidateMessage(
+                currentUsername || 'anonymous',
+                message.from,
+                event.candidate.toJSON()
+              );
+              sendSignalingMessage(candidateMessage);
+            }
+          };
+
           const offerData = (message.data as any)?.offer || message.data;
           await connection.setRemoteDescription(offerData as RTCSessionDescriptionInit);
+          console.log('✅ [WebRTC] Remote description set (offer)');
 
           // Answerを作成して送信
           const answer = await connection.createAnswer();
           await connection.setLocalDescription(answer);
+          console.log('✅ [WebRTC] Answer created and local description set');
 
           const answerMessage = MessageHandler.createAnswerMessage(
             currentUsername || 'anonymous',
@@ -284,21 +258,26 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
             answer
           );
 
-          sendSignalingMessage(answerMessage);
+          const answerSent = sendSignalingMessage(answerMessage);
+          console.log('📤 [WebRTC] Answer sent:', answerSent);
           break;
 
         case 'answer':
         case 'webrtc-answer' as any:
           // Answerを受信
+          console.log('📥 [WebRTC] Received answer from:', message.from);
           const answerData = (message.data as any)?.answer || message.data;
           await connection.setRemoteDescription(answerData as RTCSessionDescriptionInit);
+          console.log('✅ [WebRTC] Remote description set (answer)');
           break;
 
         case 'ice-candidate':
           // ICE候補を受信
+          console.log('📥 [WebRTC] Received ICE candidate from:', message.from);
           const candidateData = (message.data as any)?.candidate || message.data;
           const candidate = new RTCIceCandidate(candidateData as RTCIceCandidateInit);
           await connection.addIceCandidate(candidate);
+          console.log('✅ [WebRTC] ICE candidate added');
           break;
       }
     } catch (error) {
@@ -385,18 +364,22 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
       setCurrentUsername(username);
       setError(null);
 
-      // バックエンドとのWebRTC接続を開始
-      console.log('🔗 バックエンドとのWebRTC接続を開始...');
-      const startPeerMessage = {
-        type: 'start-peer-connection',
-        data: {
-          remoteUserId: 'backend' // バックエンドとの接続
-        },
-        timestamp: Date.now()
-      };
+      // バックエンドとのWebRTC接続を開始（通常モードのみ）
+      if (enableWebRTC) {
+        console.log('🔗 バックエンドとのWebRTC接続を開始...');
+        const startPeerMessage = {
+          type: 'start-peer-connection',
+          data: {
+            remoteUserId: 'backend' // バックエンドとの接続
+          },
+          timestamp: Date.now()
+        };
 
-      const peerSuccess = sendSignalingMessage(startPeerMessage);
-      console.log('🔗 WebRTC接続開始メッセージ送信結果:', peerSuccess);
+        const peerSuccess = sendSignalingMessage(startPeerMessage);
+        console.log('🔗 WebRTC接続開始メッセージ送信結果:', peerSuccess);
+      } else {
+        console.log('🔗 WebRTC disabled (broadcast/viewer mode)');
+      }
 
     } catch (error) {
       console.error('❌ Failed to join room:', error);
@@ -484,6 +467,168 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
     return wsClientRef.current?.getConnectionState() || null;
   }, []);
 
+  // 配信タイムスタンプを送信
+  const sendBroadcastTimestamp = useCallback((message: BroadcastTimestampMessage): boolean => {
+    const wsState = wsClientRef.current?.getConnectionState();
+    if (!wsClientRef.current || wsState !== 'connected') {
+      console.warn('Cannot send broadcast timestamp: WebSocket not connected', { wsState, connectionState });
+      return false;
+    }
+
+    const success = wsClientRef.current.send(message);
+    if (success) {
+      console.log('📡 Sent broadcast timestamp:', message.data.frameId.slice(0, 8));
+    }
+    return success;
+  }, [connectionState]);
+
+  // タイムスタンプ付き感情データを送信
+  const sendEmotionWithTimestamp = useCallback((message: EmotionWithTimestampMessage): boolean => {
+    const wsState = wsClientRef.current?.getConnectionState();
+    if (!wsClientRef.current || wsState !== 'connected') {
+      console.warn('Cannot send emotion with timestamp: WebSocket not connected', { wsState, connectionState });
+      return false;
+    }
+
+    const success = wsClientRef.current.send(message);
+    if (success) {
+      console.log('🎭 Sent emotion with timestamp:', message.data.frameId.slice(0, 8));
+    }
+    return success;
+  }, [connectionState]);
+
+  // 手動でWebRTC接続を開始（peer-joinedメッセージがない場合の代替）
+  const initiateWebRTCConnection = useCallback(async (peerId: string, peerUsername: string) => {
+    if (!enableWebRTC) {
+      console.log('⏭️ Skipping manual WebRTC connection - enableWebRTC is false');
+      return;
+    }
+
+    console.log('🔗 [Manual] Initiating WebRTC connection to peer:', peerId, peerUsername);
+
+    // handlePeerJoinedと同じロジックを実行
+    const fakePeerJoinedMessage: PeerJoinedMessage = {
+      type: 'peer-joined',
+      peerId,
+      username: peerUsername,
+      timestamp: Date.now(),
+    };
+
+    await handlePeerJoined(fakePeerJoinedMessage);
+  }, [enableWebRTC, handlePeerJoined]);
+
+  // WebSocketクライアントとメッセージハンドラーの初期化
+  useEffect(() => {
+    // React Strict Modeでの重複実行を防ぐ
+    if (wsClientRef.current) {
+      console.log('WebSocket client already exists, skipping initialization');
+      return;
+    }
+
+    // ユーザーIDを取得（localStorageから）
+    const userId = localStorage.getItem('userName') || 'Anonymous';
+
+    // WebSocketクライアント作成
+    console.log('Creating WebSocket with userId:', userId);
+    wsClientRef.current = new WebSocketClient({
+      url: config.signalingUrl,
+      userId: userId,
+      reconnectInterval: 5000,
+      maxReconnectAttempts: 1,
+      heartbeatInterval: 0,
+    });
+
+    // メッセージハンドラー作成
+    messageHandlerRef.current = new MessageHandler();
+
+    // WebSocketイベントハンドラー設定
+    wsClientRef.current.setEventHandlers({
+      onOpen: () => {
+        console.log('Signaling connected');
+        setError(null);
+      },
+      onClose: () => {
+        console.log('Signaling disconnected');
+      },
+      onError: (error) => {
+        console.error('Signaling error:', error);
+        setError('シグナリングサーバーとの接続でエラーが発生しました');
+      },
+      onMessage: (message) => {
+        messageHandlerRef.current?.handleMessage(message);
+      },
+      onConnectionStateChange: (state) => {
+        console.log('🔄 Connection state changed to:', state);
+        setConnectionState(state);
+      },
+    });
+
+    // メッセージハンドラーのコールバック設定
+    console.log('🔧 [DEBUG] Setting up message handler callbacks:', {
+      hasOnRoomJoined: !!onRoomJoined,
+      hasOnBroadcastTimestamp: !!onBroadcastTimestamp,
+      hasOnEmotionWithTimestamp: !!onEmotionWithTimestamp,
+      hasOnIonMessage: !!onIonMessage,
+      hasHandlePeerJoined: !!handlePeerJoined
+    });
+    messageHandlerRef.current.setCallbacks({
+      onPeerJoined: handlePeerJoined,
+      onPeerLeft: handlePeerLeft,
+      onWebRTCSignaling: handleWebRTCSignaling,
+      onEmotionBroadcast: handleEmotionBroadcast,
+      onEmotionProcessed: handleEmotionProcessed,
+      onBroadcastTimestamp: onBroadcastTimestamp,
+      onEmotionWithTimestamp: onEmotionWithTimestamp,
+      onIonMessage: onIonMessage,
+      onRoomJoined: onRoomJoined,
+      onError: (errorMessage) => {
+        setError(errorMessage.error.message);
+      },
+    });
+    console.log('✅ [DEBUG] Message handler callbacks set');
+
+    // 自動接続
+    if (autoConnect) {
+      connect();
+    }
+
+    return () => {
+      wsClientRef.current?.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoConnect]);
+
+  // Update callbacks when they change (from props only)
+  useEffect(() => {
+    console.log('🔄 [DEBUG] Updating callbacks (prop change detected):', {
+      hasOnRoomJoined: !!onRoomJoined,
+      hasOnBroadcastTimestamp: !!onBroadcastTimestamp,
+      hasOnEmotionWithTimestamp: !!onEmotionWithTimestamp,
+      hasOnIonMessage: !!onIonMessage,
+      hasMessageHandler: !!messageHandlerRef.current
+    });
+
+    if (messageHandlerRef.current) {
+      messageHandlerRef.current.setCallbacks({
+        onPeerJoined: handlePeerJoined,
+        onPeerLeft: handlePeerLeft,
+        onWebRTCSignaling: handleWebRTCSignaling,
+        onEmotionBroadcast: handleEmotionBroadcast,
+        onEmotionProcessed: handleEmotionProcessed,
+        onBroadcastTimestamp: onBroadcastTimestamp,
+        onEmotionWithTimestamp: onEmotionWithTimestamp,
+        onIonMessage: onIonMessage,
+        onRoomJoined: onRoomJoined,
+        onError: (errorMessage) => {
+          setError(errorMessage.error.message);
+        },
+      });
+      console.log('✅ [DEBUG] Callbacks updated via useEffect');
+    }
+    // Only re-run when prop callbacks change, not internal handlers
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onBroadcastTimestamp, onEmotionWithTimestamp, onRoomJoined, onIonMessage]);
+
   return {
     connectionState,
     isConnected: connectionState === 'connected',
@@ -495,6 +640,9 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
     leaveRoom,
     sendSignalingMessage,
     sendEmotionData,
+    sendBroadcastTimestamp,
+    sendEmotionWithTimestamp,
     getWebSocketState,
+    initiateWebRTCConnection,
   };
 };

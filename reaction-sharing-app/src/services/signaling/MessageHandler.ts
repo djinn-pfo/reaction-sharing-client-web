@@ -6,7 +6,12 @@ import type {
   PeerJoinedMessage,
   PeerLeftMessage,
   ErrorMessage,
+  BroadcastTimestampMessage,
+  EmotionWithTimestampMessage,
+  RoomJoinedMessage,
 } from '../../types/signaling';
+import type { IonMessage } from '../../types/ion';
+import { isIonMessage } from '../../types/ion';
 
 // 感情データ受信メッセージ型
 export interface EmotionBroadcastMessage extends SignalingMessage {
@@ -29,13 +34,16 @@ export interface EmotionProcessedMessage extends SignalingMessage {
 
 // メッセージハンドラーのコールバック型
 export interface MessageHandlerCallbacks {
-  onRoomJoined?: (message: SignalingMessage) => void;
+  onRoomJoined?: (message: RoomJoinedMessage) => void;
   onRoomLeft?: (message: SignalingMessage) => void;
   onPeerJoined?: (message: PeerJoinedMessage) => void;
   onPeerLeft?: (message: PeerLeftMessage) => void;
   onWebRTCSignaling?: (message: WebRTCSignalingMessage) => void;
   onEmotionBroadcast?: (message: EmotionBroadcastMessage) => void;
   onEmotionProcessed?: (message: EmotionProcessedMessage) => void;
+  onBroadcastTimestamp?: (message: BroadcastTimestampMessage) => void;
+  onEmotionWithTimestamp?: (message: EmotionWithTimestampMessage) => void;
+  onIonMessage?: (message: IonMessage) => void;
   onError?: (message: ErrorMessage) => void;
   onUnknownMessage?: (message: SignalingMessage) => void;
 }
@@ -49,7 +57,7 @@ export class MessageHandler {
   }
 
   // 個別のコールバックを設定
-  public onRoomJoined(callback: (message: SignalingMessage) => void): void {
+  public onRoomJoined(callback: (message: RoomJoinedMessage) => void): void {
     this.callbacks.onRoomJoined = callback;
   }
 
@@ -77,6 +85,14 @@ export class MessageHandler {
     this.callbacks.onEmotionProcessed = callback;
   }
 
+  public onBroadcastTimestamp(callback: (message: BroadcastTimestampMessage) => void): void {
+    this.callbacks.onBroadcastTimestamp = callback;
+  }
+
+  public onEmotionWithTimestamp(callback: (message: EmotionWithTimestampMessage) => void): void {
+    this.callbacks.onEmotionWithTimestamp = callback;
+  }
+
   public onError(callback: (message: ErrorMessage) => void): void {
     this.callbacks.onError = callback;
   }
@@ -86,12 +102,28 @@ export class MessageHandler {
   }
 
   // メッセージを処理
-  public handleMessage(message: SignalingMessage): void {
+  public handleMessage(message: SignalingMessage | IonMessage): void {
     try {
+      // Check if message is Ion message first
+      if (isIonMessage(message)) {
+        console.log('📨 [ION] Received Ion message:', message.type);
+        this.callbacks.onIonMessage?.(message);
+        return;
+      }
+
       console.log('📨 Received message:', message.type, message);
+      console.log('🔍 [DEBUG] Message type check:', {
+        type: message.type,
+        typeOf: typeof message.type,
+        isRoomJoined: message.type === 'room-joined',
+        isJoined: message.type === 'joined',
+        hasOnRoomJoined: !!this.callbacks.onRoomJoined
+      });
+
       switch (message.type) {
         case 'room-joined':
-          this.callbacks.onRoomJoined?.(message);
+          console.log('🎯 Handling room-joined message');
+          this.callbacks.onRoomJoined?.(message as RoomJoinedMessage);
           break;
 
         case 'room-left':
@@ -116,7 +148,9 @@ export class MessageHandler {
 
         case 'joined':
           console.log('✅ Successfully joined room:', message);
-          this.callbacks.onRoomJoined?.(message);
+          console.log('🎯 Handling joined message, calling onRoomJoined callback');
+          this.callbacks.onRoomJoined?.(message as RoomJoinedMessage);
+          console.log('🎯 onRoomJoined callback completed');
           break;
 
         case 'emotion.broadcast':
@@ -127,6 +161,16 @@ export class MessageHandler {
         case 'emotion.processed':
           console.log('✅ Emotion data processed:', message);
           this.callbacks.onEmotionProcessed?.(message as EmotionProcessedMessage);
+          break;
+
+        case 'broadcast-timestamp':
+          console.log('📡 Received broadcast timestamp:', message);
+          this.callbacks.onBroadcastTimestamp?.(message as BroadcastTimestampMessage);
+          break;
+
+        case 'emotion-with-timestamp':
+          console.log('🎭 Received emotion with timestamp:', message);
+          this.callbacks.onEmotionWithTimestamp?.(message as EmotionWithTimestampMessage);
           break;
 
         case 'error':

@@ -100,9 +100,9 @@ export const LobbyView: React.FC = () => {
             <p className="text-gray-600 mb-2">
               参加したいルームを選択してください
             </p>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-              <p className="text-sm text-yellow-800">
-                💡 ローカル開発モード: MediaPipe感情検出とマニュアルリアクション機能をテストできます
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <p className="text-sm text-blue-800">
+                💡 最初に入った人が配信者、2人目以降が視聴者になります。配信者の映像を見ながらリアクションを送信できます！
               </p>
             </div>
           </div>

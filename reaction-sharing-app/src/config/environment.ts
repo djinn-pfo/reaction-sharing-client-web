@@ -12,9 +12,9 @@ interface AppConfig {
 
 export const config: AppConfig = {
   appName: import.meta.env.VITE_APP_NAME || 'ReactionSharingPlatform',
-  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
-  signalingUrl: import.meta.env.VITE_SIGNALING_URL || 'ws://192.168.3.39:8080/ws',
-  ionSfuUrl: import.meta.env.VITE_ION_SFU_URL || 'http://localhost:7000',
+  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || 'http://192.168.1.10:8080',
+  signalingUrl: import.meta.env.VITE_SIGNALING_URL || 'ws://192.168.1.10:8080/ws',
+  ionSfuUrl: import.meta.env.VITE_ION_SFU_URL || 'http://192.168.1.10:7000',
   stunServers: (import.meta.env.VITE_STUN_SERVERS || 'stun:stun.l.google.com:19302').split(','),
   logLevel: import.meta.env.VITE_LOG_LEVEL as AppConfig['logLevel'] || 'info',
   maxParticipants: parseInt(import.meta.env.VITE_MAX_PARTICIPANTS || '30'),

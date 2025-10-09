@@ -80,7 +80,7 @@ export const RoomCard: React.FC<RoomCardProps> = ({
         disabled={disabled || isFull}
         className="w-full"
       >
-        {isFull ? '満室のため参加できません' : '参加する'}
+        {isFull ? '満室のため参加できません' : 'ルームに参加'}
       </Button>
 
       {disabled && !isFull && (

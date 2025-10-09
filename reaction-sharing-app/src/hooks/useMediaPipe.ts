@@ -119,8 +119,7 @@ export const useMediaPipe = (_options: MediaPipeHookOptions = {}) => {
     }
 
     try {
-      setState(prev => ({ ...prev, isProcessing: true }));
-
+      // Don't update state here - causes infinite loop on every frame
       const results = faceLandmarkerRef.current.detectForVideo(video, performance.now());
 
       let landmarks: FaceLandmark[] | null = null;
@@ -193,8 +192,7 @@ export const useMediaPipe = (_options: MediaPipeHookOptions = {}) => {
           landmarks,
           normalizedLandmarks,
           normalizationData,
-          compressionStats: compressorRef.current.getCompressionStats(),
-          isProcessing: false
+          compressionStats: compressorRef.current.getCompressionStats()
         }));
       } else {
         setState(prev => ({
@@ -202,16 +200,14 @@ export const useMediaPipe = (_options: MediaPipeHookOptions = {}) => {
           landmarks: null,
           normalizedLandmarks: null,
           normalizationData: null,
-          compressionStats: compressorRef.current.getCompressionStats(),
-          isProcessing: false
+          compressionStats: compressorRef.current.getCompressionStats()
         }));
       }
     } catch (error) {
       console.error('Error processing video frame:', error);
       setState(prev => ({
         ...prev,
-        error: error instanceof Error ? error.message : '映像処理エラー',
-        isProcessing: false
+        error: error instanceof Error ? error.message : '映像処理エラー'
       }));
     }
   };

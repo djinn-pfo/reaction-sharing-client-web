@@ -218,6 +218,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       // イベントハンドラー設定
       connection.onconnectionstatechange = () => {
+        console.log(`🔗 [WebRTC] Peer ${peerId} connection state:`, connection.connectionState);
         dispatch({
           type: 'UPDATE_PEER_CONNECTION_STATE',
           payload: {
@@ -229,6 +230,11 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       connection.ontrack = (event) => {
         const [remoteStream] = event.streams;
+        console.log(`📹 [WebRTC] Received remote track from peer ${peerId}:`, {
+          streamId: remoteStream.id,
+          trackCount: remoteStream.getTracks().length,
+          tracks: remoteStream.getTracks().map(t => ({ kind: t.kind, id: t.id }))
+        });
         dispatch({
           type: 'SET_PEER_REMOTE_STREAM',
           payload: { peerId, stream: remoteStream },
@@ -237,11 +243,23 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
       connection.ondatachannel = (event) => {
         const dataChannel = event.channel;
+        console.log(`📊 [WebRTC] Received data channel from peer ${peerId}:`, dataChannel.label);
         setupDataChannel(dataChannel, peerId);
         dispatch({
           type: 'SET_PEER_DATA_CHANNEL',
           payload: { peerId, dataChannel },
         });
+      };
+
+      // ICE候補イベント（シグナリングサーバーへの送信が必要）
+      connection.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log(`🧊 [WebRTC] New ICE candidate for peer ${peerId}:`, event.candidate.candidate);
+          // Note: ICE candidateはシグナリングサーバーを通じて相手に送信される必要がある
+          // この処理は useSignaling 側で行う
+        } else {
+          console.log(`🧊 [WebRTC] ICE gathering complete for peer ${peerId}`);
+        }
       };
 
       return connection;

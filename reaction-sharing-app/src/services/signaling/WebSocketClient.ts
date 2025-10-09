@@ -84,6 +84,24 @@ export class WebSocketClient {
         timestamp: Date.now(),
       };
 
+      // Debug Ion messages
+      if (message.type?.startsWith('ion:')) {
+        const payload = (message as any).payload;
+        console.log('🚀 [WebSocket] Sending Ion message:', message.type);
+        console.log('📦 [WebSocket] Full message structure:', JSON.stringify(messageWithTimestamp, null, 2));
+        if (payload?.offer?.sdp) {
+          console.log('🔍 [WebSocket] Payload check:', {
+            hasOffer: !!payload.offer,
+            sdpLength: payload.offer.sdp.length,
+            sdpContainsIceUfrag: payload.offer.sdp.includes('a=ice-ufrag'),
+            sdpType: payload.offer.type,
+            config: payload.config,
+            sid: payload.sid,
+            uid: payload.uid,
+          });
+        }
+      }
+
       this.ws.send(JSON.stringify(messageWithTimestamp));
       return true;
     } catch (error) {

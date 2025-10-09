@@ -22,6 +22,24 @@ export interface JoinRoomMessage extends BaseMessage {
   username: string;
 }
 
+// ルーム参加完了通知
+export interface RoomJoinedMessage extends SignalingMessage {
+  type: 'room-joined' | 'joined';
+  room: string;
+  userId?: string;
+  data?: {
+    message?: string;
+    userId?: string;
+    participantCount?: number;
+    participantNumber?: number;
+    isBroadcaster?: boolean;
+    role?: 'broadcaster' | 'viewer';
+    // Legacy support
+    peers?: string[];
+    peerIds?: string[];
+  };
+}
+
 // ルーム退出メッセージ
 export interface LeaveRoomMessage extends BaseMessage {
   type: 'leave';
@@ -80,4 +98,37 @@ export interface WebSocketConfig {
   maxReconnectAttempts?: number;
   heartbeatInterval?: number;
   connectionTimeout?: number;
+}
+
+// 配信タイムスタンプメッセージ
+export interface BroadcastTimestampMessage extends BaseMessage {
+  type: 'broadcast-timestamp';
+  room: string;
+  from: string;
+  data: {
+    frameId: string;
+    broadcastTimestamp: number;
+    sequenceNumber: number;
+  };
+}
+
+// タイムスタンプ付き感情メッセージ
+export interface EmotionWithTimestampMessage extends BaseMessage {
+  type: 'emotion-with-timestamp';
+  room: string;
+  from: string;
+  to: string;
+  data: {
+    userId: string;
+    intensity: number;
+    confidence: number;
+    broadcastTimestamp: number;
+    reactionSentTime: number;
+    frameId: string;
+  };
+  metrics?: {
+    broadcastToReceivedMs: number;
+    withinConstraint: boolean;
+    frameId: string;
+  };
 }
