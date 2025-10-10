@@ -141,7 +141,7 @@ export class FaceNormalizer {
       const midlineLength = this.calculateFaceMidlineLength(landmarks);
       scale = midlineLength > 0 ? targetSize / midlineLength : 1;
 
-      console.log(`🎯 Landmark-based normalization: midline=${midlineLength.toFixed(2)}px, scale=${scale.toFixed(4)}`);
+      // console.log(`🎯 Landmark-based normalization: midline=${midlineLength.toFixed(2)}px, scale=${scale.toFixed(4)}`);
     } else {
       // 各軸独立でスケール（バウンディングボックスベース）
       const maxDimension = Math.max(bbox.width, bbox.height, bbox.depth);

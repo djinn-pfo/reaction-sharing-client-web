@@ -35,7 +35,7 @@ export function useIonSession(options: UseIonSessionOptions) {
     );
 
     session.setEventHandlers({
-      onRemoteTrack: (stream) => {
+      onRemoteTrack: () => {
         console.log('📺 [useIonSession] New remote stream received');
         setRemoteStreams(session.getRemoteStreams());
       },
@@ -57,23 +57,8 @@ export function useIonSession(options: UseIonSessionOptions) {
     };
   }, [options.roomId, options.userId, options.sendIonMessage, options.noPublish, options.noSubscribe]);
 
-  // Handle incoming Ion messages
-  useEffect(() => {
-    if (!options.onIonMessage) return;
-
-    // Wrap the onIonMessage callback to route to session manager
-    const handleIonMessage = (message: IonMessage) => {
-      if (sessionRef.current) {
-        sessionRef.current.handleMessage(message);
-      }
-    };
-
-    // Register this handler - note: parent should call this via onIonMessage callback
-    // This is just for documentation
-    return () => {
-      // Cleanup if needed
-    };
-  }, [options.onIonMessage]);
+  // Handle incoming Ion messages - handled via handleMessage function below
+  // This useEffect is no longer needed as we export handleMessage directly
 
   // Get local media and join
   const join = useCallback(async (stream?: MediaStream) => {

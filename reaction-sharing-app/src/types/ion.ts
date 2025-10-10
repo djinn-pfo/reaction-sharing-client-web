@@ -121,17 +121,3 @@ export function isIonTrickleMessage(msg: IonMessage): msg is IonMessage & { payl
 export function isIonErrorMessage(msg: IonMessage): msg is IonMessage & { payload: IonErrorPayload } {
   return msg.type === 'ion:error';
 }
-
-// Explicit type re-exports for compatibility
-export type {
-  IonMessage,
-  IonMessageType,
-  IonPayload,
-  IonJoinPayload,
-  IonJoinConfig,
-  IonAnswerPayload,
-  IonOfferPayload,
-  IonTricklePayload,
-  IonErrorPayload,
-  IonErrorCode,
-};

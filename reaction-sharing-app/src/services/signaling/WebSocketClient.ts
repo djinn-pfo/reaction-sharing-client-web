@@ -232,9 +232,15 @@ export class WebSocketClient {
   // WebSocketメッセージ受信イベント
   private onWebSocketMessage(event: MessageEvent): void {
     try {
-      console.log('🔄 Raw WebSocket message received:', event.data);
       const message: SignalingMessage = JSON.parse(event.data);
-      console.log('📥 Parsed message:', message.type, message);
+
+      // emotion と emotion.broadcast メッセージのログは抑制（スパム防止）
+      const isEmotionMessage = message.type === 'emotion' || message.type === 'emotion.broadcast';
+
+      if (!isEmotionMessage) {
+        console.log('🔄 Raw WebSocket message received:', event.data);
+        console.log('📥 Parsed message:', message.type, message);
+      }
 
       // ハートビートレスポンス処理
       if (message.type === 'heartbeat') {

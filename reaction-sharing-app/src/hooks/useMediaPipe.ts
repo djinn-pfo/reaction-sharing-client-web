@@ -137,7 +137,6 @@ export const useMediaPipe = (_options: MediaPipeHookOptions = {}) => {
 
         // transformation matrixを取得（複数の可能性を試す）
         let transformMatrix = null;
-        let foundProperty = null;
 
         // DEBUG: MediaPipeの結果オブジェクトのプロパティを確認（一度だけ）
         if (!(window as any).mediaPipePropsLogged) {
@@ -153,14 +152,8 @@ export const useMediaPipe = (_options: MediaPipeHookOptions = {}) => {
         for (const prop of possibleMatrixProps) {
           if ((results as any)[prop] && (results as any)[prop].length > 0) {
             transformMatrix = (results as any)[prop][0];
-            foundProperty = prop;
             break;
           }
-        }
-
-        // transformation matrixが見つかった場合のみログ
-        if (foundProperty) {
-          console.log(`✅ Found transformation matrix in: ${foundProperty}`);
         }
 
         try {

@@ -412,7 +412,7 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
 
 
   // 感情データ送信（WebSocket API準拠）
-  const sendEmotionData = useCallback((landmarks: any[], userId: string, confidence: number = 0.9, normalizedLandmarks?: any[]): boolean => {
+  const sendEmotionData = useCallback((landmarks: any[], _userId: string, confidence: number = 0.9, normalizedLandmarks?: any[]): boolean => {
     if (!wsClientRef.current || !currentRoomId) {
       console.warn('Cannot send emotion data: WebSocket not connected or not in room');
       return false;
@@ -439,16 +439,16 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
       timestamp: Date.now()
     };
 
-    console.log('📤 Sending emotion data via WebSocket:', {
-      userId,
-      originalLandmarkCount: landmarks.length,
-      normalizedLandmarkCount: normalizedLandmarks?.length || 0,
-      isNormalized: !!normalizedLandmarks,
-      confidence,
-      room: currentRoomId
-    });
+    // console.log('📤 Sending emotion data via WebSocket:', {
+    //   userId,
+    //   originalLandmarkCount: landmarks.length,
+    //   normalizedLandmarkCount: normalizedLandmarks?.length || 0,
+    //   isNormalized: !!normalizedLandmarks,
+    //   confidence,
+    //   room: currentRoomId
+    // });
 
-    console.log('📦 Full emotion message:', emotionMessage);
+    // console.log('📦 Full emotion message:', emotionMessage);
 
     return sendSignalingMessage(emotionMessage);
   }, [currentRoomId]);

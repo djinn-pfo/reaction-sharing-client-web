@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Button } from '../common/Button';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { useSignaling } from '../../hooks/useSignaling';
@@ -16,7 +16,6 @@ import type { IonMessage } from '../../types/ion';
 
 export const SessionView: React.FC = () => {
   const { roomId } = useParams();
-  const navigate = useNavigate();
   const [isJoining, setIsJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -30,16 +29,15 @@ export const SessionView: React.FC = () => {
   const [isBroadcaster, setIsBroadcaster] = useState<boolean | undefined>(undefined);
   const [hasTimestamp, setHasTimestamp] = useState(false);
   const [receivedReactions, setReceivedReactions] = useState<ReceivedReactionWithMetrics[]>([]);
-  const [peersToConnect, setPeersToConnect] = useState<string[]>([]);
   const [broadcasterUserId, setBroadcasterUserId] = useState<string>('broadcaster');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [needsPlayButton, setNeedsPlayButton] = useState(false);
 
   // Broadcast services
   const timestampSyncRef = useRef<BroadcastTimestampSync | null>(null);
   const reactionReceiverRef = useRef<ReactionReceiver | null>(null);
   const viewerReactionSenderRef = useRef<ViewerReactionSender | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   // ユーザー名を取得
   const userName = localStorage.getItem('userName') || 'Anonymous';
@@ -160,9 +158,9 @@ export const SessionView: React.FC = () => {
       const success = sendEmotionData(normalizedLandmarks || landmarks, userName, 0.9);
       if (success) {
         lastSendTimeRef.current = now;
-        const landmarkCount = normalizedLandmarks?.length || landmarks.length;
-        const isNormalized = !!normalizedLandmarks;
-        console.log(`📤 Viewer sent emotion data: ${landmarkCount} landmarks (normalized: ${isNormalized})`);
+        // const landmarkCount = normalizedLandmarks?.length || landmarks.length;
+        // const isNormalized = !!normalizedLandmarks;
+        // console.log(`📤 Viewer sent emotion data: ${landmarkCount} landmarks (normalized: ${isNormalized})`);
       }
 
       // タイムスタンプ付きリアクション送信（新システム: レイテンシー計測用）
@@ -178,21 +176,21 @@ export const SessionView: React.FC = () => {
             const latestEmotion = myEmotions[myEmotions.length - 1];
             intensity = latestEmotion.intensity;
             confidence = latestEmotion.confidence;
-            console.log(`[SessionView] Viewer: Using actual emotion data - intensity=${intensity}, confidence=${confidence}`);
+            // console.log(`[SessionView] Viewer: Using actual emotion data - intensity=${intensity}, confidence=${confidence}`);
           } else {
-            console.warn('[SessionView] Viewer: No emotion data available, using default intensity=50');
+            // console.warn('[SessionView] Viewer: No emotion data available, using default intensity=50');
           }
 
           const reactionSuccess = viewerReactionSenderRef.current.sendReactionWithTimestamp(intensity, confidence);
           if (reactionSuccess) {
             lastReactionSendTimeRef.current = now;
-            console.log('[SessionView] Viewer: Sent reaction with timestamp, intensity=', intensity);
+            // console.log('[SessionView] Viewer: Sent reaction with timestamp, intensity=', intensity);
           }
         }
       }
     } else if (isBroadcaster) {
       // 配信者は感情データを送信しない（タイムスタンプのみ送信）
-      console.log('📡 Broadcaster: Skip sending emotion data (timestamp only)');
+      // console.log('📡 Broadcaster: Skip sending emotion data (timestamp only)');
     }
   }, [isConnected, sendEmotionData, normalizedLandmarks, normalizationData, isBroadcaster, hasTimestamp, userName]);
 
@@ -326,11 +324,14 @@ export const SessionView: React.FC = () => {
         }
 
         // ========== Step 4: ルーム参加 ==========
+        console.log('[DEBUG][STEP4] Calling joinRoom...');
         await joinRoom(roomId, userName);
+        console.log('[DEBUG][STEP4] joinRoom completed');
         if (cancelledRef.current) return;
 
         // 役割が決定されるまで待機
         // （onRoomJoined コールバックで setIsBroadcaster が呼ばれる）
+        console.log('[DEBUG][STEP4] Waiting for role determination...');
 
       } catch (error) {
         if (!cancelledRef.current) {
@@ -381,21 +382,52 @@ export const SessionView: React.FC = () => {
 
   // Handle remote streams from Ion-SFU
   useEffect(() => {
+    console.log('[SessionView] 🔍 Remote stream check:', {
+      remoteStreamsCount: ionSession.remoteStreams.length,
+      hasRemoteVideoRef: !!remoteVideoRef.current,
+      isBroadcaster,
+    });
+
     if (ionSession.remoteStreams.length > 0) {
       const remoteStream = ionSession.remoteStreams[0];
-      console.log('[SessionView] 📺 Received remote stream from Ion-SFU');
-      setRemoteStream(remoteStream);
+      console.log('[SessionView] 📺 Received remote stream from Ion-SFU:', {
+        streamId: remoteStream.id,
+        videoTracks: remoteStream.getVideoTracks().length,
+        audioTracks: remoteStream.getAudioTracks().length,
+        videoTrackEnabled: remoteStream.getVideoTracks()[0]?.enabled,
+        videoTrackReadyState: remoteStream.getVideoTracks()[0]?.readyState,
+      });
 
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
-        remoteVideoRef.current.play().catch((error) => {
-          console.log('Remote video autoplay failed:', error);
+        console.log('[SessionView] ✅ Remote stream set to video element');
+
+        remoteVideoRef.current.play().then(() => {
+          console.log('[SessionView] ✅ Remote video playing successfully');
+          setNeedsPlayButton(false);
+        }).catch((error) => {
+          console.error('[SessionView] ❌ Remote video autoplay failed:', error);
+          // 手動再生を試みる
+          console.log('[SessionView] 🔄 Trying to play with muted...');
+          remoteVideoRef.current!.muted = true;
+          remoteVideoRef.current!.play().then(() => {
+            console.log('[SessionView] ✅ Muted autoplay succeeded');
+            setNeedsPlayButton(false);
+          }).catch((e) => {
+            console.error('[SessionView] ❌ Muted play also failed:', e);
+            // ユーザーインタラクションが必要
+            setNeedsPlayButton(true);
+          });
         });
+      } else {
+        console.error('[SessionView] ❌ remoteVideoRef.current is null!');
       }
     }
-  }, [ionSession.remoteStreams]);
+  }, [ionSession.remoteStreams, isBroadcaster]);
 
   // Ion-SFU初期化（役割決定後に実行）
+  const ionInitializedRef = useRef(false);
+
   useEffect(() => {
     console.log('[Ion-SFU] useEffect triggered with:', {
       roomId,
@@ -405,6 +437,7 @@ export const SessionView: React.FC = () => {
       broadcasterUserId,
       hasViewerReactionSender: !!viewerReactionSenderRef.current,
       hasTimestampSync: !!timestampSyncRef.current,
+      ionInitialized: ionInitializedRef.current,
     });
 
     if (!roomId) return;
@@ -420,8 +453,14 @@ export const SessionView: React.FC = () => {
       console.log('[Ion-SFU] ⏳ Waiting for local stream...');
       return;
     }
+    if (ionInitializedRef.current) {
+      console.log('[Ion-SFU] ⏭️ Already initialized, skipping...');
+      return;
+    }
 
     const initializeServices = async () => {
+      ionInitializedRef.current = true;
+
       if (isBroadcaster) {
         // Broadcaster: Initialize timestamp sync, reaction receiver, and Ion-SFU publish
         if (!timestampSyncRef.current) {
@@ -481,7 +520,7 @@ export const SessionView: React.FC = () => {
     };
 
     initializeServices();
-  }, [isBroadcaster, roomId, userName, broadcasterUserId, localStream, sendBroadcastTimestamp, sendEmotionWithTimestamp, isAuthenticated, ionSession]);
+  }, [isBroadcaster, roomId, userName, broadcasterUserId, localStream, sendBroadcastTimestamp, sendEmotionWithTimestamp, isAuthenticated]);
 
   // WebSocket接続完了を待機する関数
   const waitForConnection = useCallback(async (timeout = 5000): Promise<boolean> => {
@@ -525,7 +564,86 @@ export const SessionView: React.FC = () => {
 
 
   const handleLeaveRoom = () => {
-    navigate('/');
+    console.log('🚪 [SessionView] Leaving room - START');
+
+    // Ion-SFU session cleanup
+    try {
+      if (ionSession) {
+        console.log('🧹 Step 1: Cleaning up Ion session...');
+        ionSession.leave();
+        console.log('✅ Step 1: Ion session cleaned');
+      } else {
+        console.log('⏭️ Step 1: No Ion session to clean');
+      }
+    } catch (error) {
+      console.error('❌ Step 1 failed:', error);
+    }
+
+    // Timestamp sync cleanup
+    try {
+      if (timestampSyncRef.current) {
+        console.log('🧹 Step 2: Stopping timestamp sync...');
+        timestampSyncRef.current.stopPeriodicSync();
+        timestampSyncRef.current = null;
+        console.log('✅ Step 2: Timestamp sync stopped');
+      } else {
+        console.log('⏭️ Step 2: No timestamp sync to stop');
+      }
+    } catch (error) {
+      console.error('❌ Step 2 failed:', error);
+    }
+
+    // Stop local stream
+    try {
+      if (localStream) {
+        console.log('🧹 Step 3: Stopping local stream...');
+        localStream.getTracks().forEach(track => {
+          track.stop();
+          console.log('🛑 Stopped track:', track.kind);
+        });
+        console.log('✅ Step 3: Local stream stopped');
+      } else {
+        console.log('⏭️ Step 3: No local stream to stop');
+      }
+    } catch (error) {
+      console.error('❌ Step 3 failed:', error);
+    }
+
+    // Leave WebSocket room
+    try {
+      if (roomId && isConnected) {
+        console.log('🧹 Step 4: Leaving WebSocket room...');
+        leaveRoom(roomId);
+        console.log('✅ Step 4: Left WebSocket room');
+      } else {
+        console.log('⏭️ Step 4: Not connected or no roomId');
+      }
+    } catch (error) {
+      console.error('❌ Step 4 failed:', error);
+    }
+
+    console.log('✅ [SessionView] All cleanup steps completed');
+    console.log('📍 Current location:', window.location.pathname);
+    console.log('🎯 Navigating to: /');
+
+    // Force navigation immediately
+    try {
+      console.log('🔄 Using window.location.href for navigation...');
+      window.location.href = '/';
+    } catch (error) {
+      console.error('❌ Navigation failed:', error);
+    }
+  };
+
+  const handleStartViewing = () => {
+    if (remoteVideoRef.current && remoteVideoRef.current.srcObject) {
+      remoteVideoRef.current.play().then(() => {
+        console.log('[SessionView] ✅ Manual play succeeded');
+        setNeedsPlayButton(false);
+      }).catch((error) => {
+        console.error('[SessionView] ❌ Manual play failed:', error);
+      });
+    }
   };
 
   // activeParticipantsは現在使用していないため削除
@@ -636,7 +754,7 @@ export const SessionView: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4 text-center">
               {isBroadcaster === true ? 'あなたの配信映像' : isBroadcaster === false ? '配信映像' : '映像'}
             </h2>
-            <div className="flex justify-center">
+            <div className="flex justify-center relative">
               {/* 配信者用: ローカル映像 */}
               <video
                 ref={localVideoRef}
@@ -653,8 +771,21 @@ export const SessionView: React.FC = () => {
                 playsInline
                 className={`w-full max-w-2xl rounded bg-black ${isBroadcaster !== false ? 'hidden' : ''}`}
               />
+
+              {/* 視聴開始ボタン（autoplay失敗時のみ表示） */}
+              {!isBroadcaster && needsPlayButton && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded">
+                  <Button
+                    variant="primary"
+                    onClick={handleStartViewing}
+                    className="text-xl px-8 py-4"
+                  >
+                    🎬 視聴を開始
+                  </Button>
+                </div>
+              )}
             </div>
-            {!isBroadcaster && !remoteVideoRef.current?.srcObject && (
+            {!isBroadcaster && !remoteVideoRef.current?.srcObject && !needsPlayButton && (
               <p className="text-center text-gray-400 mt-4">
                 配信者の映像を待っています...
               </p>
@@ -701,46 +832,73 @@ export const SessionView: React.FC = () => {
 
               {receivedReactions.length > 0 ? (
                 (() => {
-                  const latestReaction = receivedReactions[receivedReactions.length - 1];
-                  const intensity = latestReaction.data.intensity;
-                  const userId = latestReaction.data.userId;
-                  const latency = latestReaction.metrics.broadcastToReceivedMs;
-                  const isGoodLatency = latestReaction.metrics.withinConstraint;
+                  // userId ごとに最新のリアクションを取得
+                  const latestReactionsByUser = new Map<string, ReceivedReactionWithMetrics>();
+                  receivedReactions.forEach(reaction => {
+                    const current = latestReactionsByUser.get(reaction.data.userId);
+                    if (!current || reaction.data.reactionSentTime > current.data.reactionSentTime) {
+                      latestReactionsByUser.set(reaction.data.userId, reaction);
+                    }
+                  });
+
+                  // ユーザーIDでソートして表示順を固定
+                  const sortedReactions = Array.from(latestReactionsByUser.entries())
+                    .sort(([userIdA], [userIdB]) => userIdA.localeCompare(userIdB));
 
                   return (
                     <div className="space-y-4">
-                      {/* ユーザー情報 */}
-                      <div className="flex items-center justify-between">
-                        <span className="text-lg font-medium text-blue-400">{userId}</span>
+                      {/* 統計情報 */}
+                      <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-700">
                         <span className="text-sm text-gray-400">
-                          総受信: {receivedReactions.length}件
+                          視聴者数: <span className="text-blue-400 font-semibold">{latestReactionsByUser.size}</span>名
+                        </span>
+                        <span className="text-sm text-gray-400">
+                          総受信: <span className="text-green-400 font-semibold">{receivedReactions.length}</span>件
                         </span>
                       </div>
 
-                      {/* Intensity インジケータ */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-400">感情強度</span>
-                          <span className="text-4xl font-bold text-green-400">{intensity}</span>
-                        </div>
+                      {/* 各ユーザーのリアクション */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {sortedReactions.map(([userId, reaction]) => {
+                          const intensity = reaction.data.intensity;
+                          const latency = reaction.metrics.broadcastToReceivedMs;
+                          const isGoodLatency = reaction.metrics.withinConstraint;
 
-                        {/* プログレスバー */}
-                        <div className="w-full bg-gray-700 rounded-full h-8 overflow-hidden">
-                          <div
-                            className="bg-gradient-to-r from-green-600 to-green-400 h-full transition-all duration-300 flex items-center justify-center text-white font-semibold"
-                            style={{ width: `${intensity}%` }}
-                          >
-                            {intensity}%
-                          </div>
-                        </div>
-                      </div>
+                          return (
+                            <div key={userId} className="bg-gray-700 rounded-lg p-4 space-y-3">
+                              {/* ユーザー名 */}
+                              <div className="flex items-center justify-between">
+                                <span className="text-base font-medium text-blue-400 truncate">{userId}</span>
+                              </div>
 
-                      {/* レイテンシ情報（小さく表示） */}
-                      <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-700">
-                        <span>遅延</span>
-                        <span className={isGoodLatency ? 'text-green-500' : 'text-red-500'}>
-                          {latency.toFixed(0)}ms {isGoodLatency ? '✓' : '⚠️'}
-                        </span>
+                              {/* Intensity インジケータ */}
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs text-gray-400">感情強度</span>
+                                  <span className="text-2xl font-bold text-green-400">{intensity}</span>
+                                </div>
+
+                                {/* プログレスバー */}
+                                <div className="w-full bg-gray-600 rounded-full h-6 overflow-hidden">
+                                  <div
+                                    className="bg-gradient-to-r from-green-600 to-green-400 h-full transition-all duration-300 flex items-center justify-center text-white text-sm font-semibold"
+                                    style={{ width: `${intensity}%` }}
+                                  >
+                                    {intensity}%
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* レイテンシ情報 */}
+                              <div className="flex items-center justify-between text-xs text-gray-500 pt-1 border-t border-gray-600">
+                                <span>遅延</span>
+                                <span className={isGoodLatency ? 'text-green-500' : 'text-red-500'}>
+                                  {latency.toFixed(0)}ms {isGoodLatency ? '✓' : '⚠️'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );

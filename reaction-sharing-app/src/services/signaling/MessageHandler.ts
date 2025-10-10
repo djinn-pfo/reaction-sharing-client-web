@@ -111,14 +111,17 @@ export class MessageHandler {
         return;
       }
 
-      console.log('📨 Received message:', message.type, message);
-      console.log('🔍 [DEBUG] Message type check:', {
-        type: message.type,
-        typeOf: typeof message.type,
-        isRoomJoined: message.type === 'room-joined',
-        isJoined: message.type === 'joined',
-        hasOnRoomJoined: !!this.callbacks.onRoomJoined
-      });
+      // emotion.broadcast メッセージのログは抑制（スパム防止）
+      if (message.type !== 'emotion.broadcast') {
+        console.log('📨 Received message:', message.type, message);
+        console.log('🔍 [DEBUG] Message type check:', {
+          type: message.type,
+          typeOf: typeof message.type,
+          isRoomJoined: message.type === 'room-joined',
+          isJoined: message.type === 'joined',
+          hasOnRoomJoined: !!this.callbacks.onRoomJoined
+        });
+      }
 
       switch (message.type) {
         case 'room-joined':
@@ -154,7 +157,7 @@ export class MessageHandler {
           break;
 
         case 'emotion.broadcast':
-          console.log('📥 Received emotion broadcast:', message);
+          // console.log('📥 Received emotion broadcast:', message);
           this.callbacks.onEmotionBroadcast?.(message as EmotionBroadcastMessage);
           break;
 

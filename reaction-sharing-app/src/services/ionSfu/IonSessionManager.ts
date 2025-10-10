@@ -44,8 +44,10 @@ export class IonSessionManager {
   private onConnectionStateChange?: (state: RTCPeerConnectionState) => void;
   private onError?: (error: Error) => void;
 
-  // ICE candidate queue (for candidates received before remote description)
-  private pendingIceCandidates: RTCIceCandidateInit[] = [];
+  // ICE candidate queues (for candidates received before remote description)
+  // Separate queues for publish and subscribe PCs
+  private pendingPublishCandidates: RTCIceCandidateInit[] = [];
+  private pendingSubscribeCandidates: RTCIceCandidateInit[] = [];
 
   constructor(
     config: IonSessionConfig,
@@ -142,18 +144,18 @@ export class IonSessionManager {
     console.log('📤 [ION] Sending join with offer.type:', typeof this.publishPC.localDescription!.type, this.publishPC.localDescription!.type);
 
     // Log what we're actually sending to debug backend issues
-    const messageToSend = {
-      type: 'ion:join',
+    const messageToSend: IonMessage = {
+      type: 'ion:join' as const,
       requestId: uuidv4(),
       payload: joinPayload,
     };
     console.log('📤 [ION] Message payload check:', {
-      hasOffer: !!messageToSend.payload.offer,
-      hasSdp: !!messageToSend.payload.offer?.sdp,
-      sdpLength: messageToSend.payload.offer?.sdp?.length || 0,
-      sdpType: messageToSend.payload.offer?.type,
-      sdpContainsIceUfrag: messageToSend.payload.offer?.sdp?.includes('a=ice-ufrag') || false,
-      config: messageToSend.payload.config,
+      hasOffer: !!(messageToSend.payload as IonJoinPayload).offer,
+      hasSdp: !!(messageToSend.payload as IonJoinPayload).offer?.sdp,
+      sdpLength: (messageToSend.payload as IonJoinPayload).offer?.sdp?.length || 0,
+      sdpType: (messageToSend.payload as IonJoinPayload).offer?.type,
+      sdpContainsIceUfrag: (messageToSend.payload as IonJoinPayload).offer?.sdp?.includes('a=ice-ufrag') || false,
+      config: (messageToSend.payload as IonJoinPayload).config,
     });
 
     this.sendMessage(messageToSend);
@@ -165,7 +167,7 @@ export class IonSessionManager {
    * Handle incoming Ion messages
    */
   handleMessage(message: IonMessage): void {
-    console.log('📨 [ION] Handling message:', message.type);
+    console.log(`📨 [ION] ⬇️ Received message: ${message.type}`);
 
     if (isIonAnswerMessage(message)) {
       this.handleAnswer(message.payload);
@@ -175,6 +177,8 @@ export class IonSessionManager {
       this.handleTrickle(message.payload);
     } else if (isIonErrorMessage(message)) {
       this.handleError(message.payload);
+    } else {
+      console.warn('⚠️ [ION] No handler matched for message type:', message.type);
     }
   }
 
@@ -182,24 +186,33 @@ export class IonSessionManager {
    * Handle answer from Ion-SFU
    */
   private async handleAnswer(payload: IonAnswerPayload): Promise<void> {
-    console.log('📥 [ION] Received answer');
+    console.groupCollapsed('📥 [ION] HANDLE ANSWER - Publish PC');
+    console.log('Answer SDP length:', payload.desc.sdp?.length || 0);
+    console.log('Answer type:', payload.desc.type);
 
     if (!this.publishPC) {
       console.error('❌ No publish peer connection');
+      console.groupEnd();
       return;
     }
 
     try {
+      console.log('📝 Setting remote description on publish PC...');
       await this.publishPC.setRemoteDescription(
         new RTCSessionDescription(payload.desc)
       );
+      console.log('✅ Remote description set');
 
-      // Process pending ICE candidates
-      await this.processPendingIceCandidates();
+      // Process pending publish ICE candidates
+      console.log('📝 Processing pending publish ICE candidates...');
+      await this.processPendingIceCandidates('publish');
+      console.log('✅ Pending publish ICE candidates processed');
 
-      console.log('✅ [ION] Remote description set');
+      console.log('🎉 [ION] Answer handled successfully');
+      console.groupEnd();
     } catch (error) {
       console.error('❌ [ION] Failed to set remote description:', error);
+      console.groupEnd();
       this.onError?.(error as Error);
     }
   }
@@ -208,29 +221,48 @@ export class IonSessionManager {
    * Handle offer from Ion-SFU (for receiving remote streams)
    */
   private async handleOffer(payload: IonOfferPayload): Promise<void> {
-    console.log('📥 [ION] Received offer for remote stream');
+    console.groupCollapsed('📥 [ION] HANDLE OFFER - Creating Subscribe PC');
+    console.log('Payload SDP length:', payload.desc.sdp?.length || 0);
+    console.log('Payload type:', payload.desc.type);
 
     // Create subscribe peer connection if not exists
     if (!this.subscribePC) {
+      console.log('📝 Step 1: Creating subscribe peer connection...');
       this.subscribePC = this.createPeerConnection('subscribe');
+      console.log('✅ Step 1 complete');
+    } else {
+      console.log('ℹ️ Subscribe PC already exists');
     }
 
     try {
       // Set remote description
+      console.log('📝 Step 2: Setting remote description...');
       await this.subscribePC.setRemoteDescription(
         new RTCSessionDescription(payload.desc)
       );
+      console.log('✅ Step 2 complete');
+
+      // Process pending subscribe ICE candidates IMMEDIATELY after setting remote description
+      console.log('📝 Step 2.5: Processing pending subscribe ICE candidates...');
+      await this.processPendingIceCandidates('subscribe');
+      console.log('✅ Step 2.5 complete - Pending subscribe ICE candidates processed');
 
       // Create answer
+      console.log('📝 Step 3: Creating answer...');
       const answer = await this.subscribePC.createAnswer();
+      console.log('✅ Step 3 complete - Answer SDP length:', answer.sdp?.length || 0);
+
+      console.log('📝 Step 4: Setting local description...');
       await this.subscribePC.setLocalDescription(answer);
+      console.log('✅ Step 4 complete');
 
       // Wait for ICE gathering to complete
-      console.log('⏳ [ION] Waiting for ICE gathering to complete (subscribe)...');
+      console.log('📝 Step 5: Waiting for ICE gathering...');
       await this.waitForIceGathering(this.subscribePC);
-      console.log('✅ [ION] ICE gathering completed (subscribe)');
+      console.log('✅ Step 5 complete - ICE gathering finished');
 
-      console.log('📤 [ION] Sending answer with answer.type:', typeof this.subscribePC.localDescription!.type, this.subscribePC.localDescription!.type);
+      console.log('📝 Step 6: Sending answer to server...');
+      console.log('Answer type:', typeof this.subscribePC.localDescription!.type, this.subscribePC.localDescription!.type);
 
       // Send answer back to server
       // IMPORTANT: Use localDescription to ensure type is string
@@ -244,9 +276,12 @@ export class IonSessionManager {
         },
       });
 
-      console.log('✅ [ION] Answer sent for remote stream');
+      console.log('✅ Step 6 complete - Answer sent successfully');
+      console.log('🎉 [ION] Subscribe PC setup completed!');
+      console.groupEnd();
     } catch (error) {
       console.error('❌ [ION] Failed to handle offer:', error);
+      console.groupEnd();
       this.onError?.(error as Error);
     }
   }
@@ -255,44 +290,66 @@ export class IonSessionManager {
    * Handle ICE candidate from Ion-SFU
    */
   private async handleTrickle(payload: IonTricklePayload): Promise<void> {
+    const pcType = payload.target === 0 ? 'publish' : 'subscribe';
     const pc = payload.target === 0 ? this.publishPC : this.subscribePC;
+    const pendingQueue = payload.target === 0 ? this.pendingPublishCandidates : this.pendingSubscribeCandidates;
 
+    // If PC doesn't exist yet, queue the candidate
     if (!pc) {
-      console.warn('⚠️  [ION] No peer connection for trickle target:', payload.target);
+      pendingQueue.push(payload.candidate);
+      console.log(`🧊 [ION] Queued ICE candidate for ${pcType} (PC not created yet, queue size: ${pendingQueue.length})`);
       return;
     }
 
     try {
       // If remote description is not set yet, queue the candidate
       if (!pc.remoteDescription) {
-        this.pendingIceCandidates.push(payload.candidate);
+        pendingQueue.push(payload.candidate);
+        console.log(`🧊 [ION] Queued ICE candidate for ${pcType} (no remote description yet, queue size: ${pendingQueue.length})`);
         return;
       }
 
+      // Add candidate immediately if PC is ready
       await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-      console.log('🧊 [ION] ICE candidate added');
+      console.log(`🧊 [ION] ICE candidate added to ${pcType} PC`);
     } catch (error) {
-      console.error('❌ [ION] Failed to add ICE candidate:', error);
+      console.error(`❌ [ION] Failed to add ICE candidate to ${pcType} PC:`, error);
     }
   }
 
   /**
    * Process queued ICE candidates after remote description is set
    */
-  private async processPendingIceCandidates(): Promise<void> {
-    if (this.pendingIceCandidates.length === 0) return;
+  private async processPendingIceCandidates(type: 'publish' | 'subscribe'): Promise<void> {
+    const pc = type === 'publish' ? this.publishPC : this.subscribePC;
+    const pendingQueue = type === 'publish' ? this.pendingPublishCandidates : this.pendingSubscribeCandidates;
 
-    console.log(`🧊 [ION] Processing ${this.pendingIceCandidates.length} pending ICE candidates`);
+    if (pendingQueue.length === 0) return;
 
-    for (const candidate of this.pendingIceCandidates) {
+    console.log(`🧊 [ION] Processing ${pendingQueue.length} pending ${type} ICE candidates`);
+
+    if (!pc) {
+      console.error(`❌ [ION] Cannot process pending candidates: ${type} PC is null`);
+      return;
+    }
+
+    for (const candidate of pendingQueue) {
       try {
-        await this.publishPC!.addIceCandidate(new RTCIceCandidate(candidate));
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        console.log(`✅ [ION] Added pending ICE candidate to ${type} PC`);
       } catch (error) {
-        console.error('❌ [ION] Failed to add pending ICE candidate:', error);
+        console.error(`❌ [ION] Failed to add pending ${type} ICE candidate:`, error);
       }
     }
 
-    this.pendingIceCandidates = [];
+    // Clear the queue
+    if (type === 'publish') {
+      this.pendingPublishCandidates = [];
+    } else {
+      this.pendingSubscribeCandidates = [];
+    }
+
+    console.log(`✅ [ION] Finished processing ${type} ICE candidates`);
   }
 
   /**
@@ -364,7 +421,7 @@ export class IonSessionManager {
     // Handle ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        console.log(`🧊 [ION] ICE candidate (${type}):`, event.candidate.candidate.substring(0, 50) + '...');
+        console.log(`🧊 [ION] ⬆️ Sending ICE candidate (${type}):`, event.candidate.candidate.substring(0, 50) + '...');
         this.sendMessage({
           type: 'ion:trickle',
           payload: {
@@ -379,20 +436,51 @@ export class IonSessionManager {
 
     // Handle connection state changes
     pc.onconnectionstatechange = () => {
-      console.log(`🔌 [ION] Connection state (${type}):`, pc.connectionState);
+      const stateEmoji = {
+        'new': '🆕',
+        'connecting': '🔄',
+        'connected': '✅',
+        'disconnected': '⚠️',
+        'failed': '❌',
+        'closed': '🚪'
+      }[pc.connectionState] || '❓';
+
+      console.log(`${stateEmoji} [ION] Connection state (${type}): ${pc.connectionState}`);
+
+      // Extra visibility for subscribe PC connection success
+      if (type === 'subscribe' && pc.connectionState === 'connected') {
+        console.log('🎉 [ION] ✅✅✅ SUBSCRIBE PC CONNECTED - Ready to receive media! ✅✅✅');
+      }
+
       this.onConnectionStateChange?.(pc.connectionState);
     };
 
     // Handle remote tracks (for subscribe PC)
     if (type === 'subscribe') {
       pc.ontrack = (event) => {
-        console.log('📺 [ION] Received remote track:', event.track.kind);
+        console.groupCollapsed('📺 [ION] 🎉 REMOTE TRACK RECEIVED');
+        console.log('Track kind:', event.track.kind);
+        console.log('Track ID:', event.track.id);
+        console.log('Track readyState:', event.track.readyState);
+        console.log('Track enabled:', event.track.enabled);
+        console.log('Track muted:', event.track.muted);
+        console.log('Number of streams:', event.streams.length);
 
         const stream = event.streams[0];
         if (stream) {
+          console.log('Stream ID:', stream.id);
+          console.log('Stream active:', stream.active);
+          console.log('Video tracks in stream:', stream.getVideoTracks().length);
+          console.log('Audio tracks in stream:', stream.getAudioTracks().length);
+
           this.remoteStreams.set(stream.id, stream);
           this.onRemoteTrack?.(stream, event);
+
+          console.log('✅ Remote stream stored and callback invoked');
+        } else {
+          console.warn('⚠️ No stream in track event!');
         }
+        console.groupEnd();
       };
     }
 
