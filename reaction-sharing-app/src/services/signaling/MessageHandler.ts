@@ -9,6 +9,7 @@ import type {
   BroadcastTimestampMessage,
   EmotionWithTimestampMessage,
   RoomJoinedMessage,
+  LaughTriggerMessage,
 } from '../../types/signaling';
 import type { IonMessage } from '../../types/ion';
 import { isIonMessage } from '../../types/ion';
@@ -43,6 +44,7 @@ export interface MessageHandlerCallbacks {
   onEmotionProcessed?: (message: EmotionProcessedMessage) => void;
   onBroadcastTimestamp?: (message: BroadcastTimestampMessage) => void;
   onEmotionWithTimestamp?: (message: EmotionWithTimestampMessage) => void;
+  onLaughTrigger?: (message: LaughTriggerMessage) => void;
   onIonMessage?: (message: IonMessage) => void;
   onError?: (message: ErrorMessage) => void;
   onUnknownMessage?: (message: SignalingMessage) => void;
@@ -174,6 +176,11 @@ export class MessageHandler {
         case 'emotion-with-timestamp':
           console.log('🎭 Received emotion with timestamp:', message);
           this.callbacks.onEmotionWithTimestamp?.(message as EmotionWithTimestampMessage);
+          break;
+
+        case 'laugh:trigger':
+          console.log('🎵 Received laugh trigger:', message);
+          this.callbacks.onLaughTrigger?.(message as LaughTriggerMessage);
           break;
 
         case 'error':

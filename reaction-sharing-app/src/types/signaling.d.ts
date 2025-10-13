@@ -132,3 +132,14 @@ export interface EmotionWithTimestampMessage extends BaseMessage {
     frameId: string;
   };
 }
+
+// 笑い声トリガーメッセージ
+export interface LaughTriggerMessage extends BaseMessage {
+  type: 'laugh:trigger';
+  room: string;
+  from: string;
+  data: {
+    presetId: string;
+    level: 'small' | 'medium' | 'large';
+  };
+}

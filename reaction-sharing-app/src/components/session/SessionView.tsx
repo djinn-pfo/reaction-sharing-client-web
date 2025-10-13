@@ -4,6 +4,7 @@ import { Button } from '../common/Button';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 import { useSignaling } from '../../hooks/useSignaling';
 import { useMediaPipe } from '../../hooks/useMediaPipe';
+import { useLaughPlayer } from '../../hooks/useLaughPlayer';
 import { IntensityChart } from '../charts/IntensityChart';
 import { NormalizedLandmarksViewer } from '../visualization/NormalizedLandmarksViewer';
 import { BroadcastTimestampSync, ReactionReceiver } from '../../services/broadcast';
@@ -42,6 +43,9 @@ export const SessionView: React.FC = () => {
   // ユーザー名を取得
   const userName = localStorage.getItem('userName') || 'Anonymous';
 
+  // 笑い声プリセットパターンを取得
+  const selectedLaughPattern = localStorage.getItem('laughPattern') || 'male1';
+
   // Debug: Monitor isBroadcaster state changes
   useEffect(() => {
     console.log('[SessionView] 🔄 isBroadcaster state changed:', isBroadcaster);
@@ -76,6 +80,30 @@ export const SessionView: React.FC = () => {
     }
   }, []);
 
+  // We need to use a ref for playPreset since it will be used in the callback
+  const playPresetRef = useRef<((presetId: string) => Promise<void>) | null>(null);
+
+  // Handle incoming laugh:trigger messages from other users
+  const handleLaughTrigger = useCallback((message: any) => {
+    console.log('[SessionView] 📥 Received laugh:trigger:', message);
+    const { from, data } = message;
+
+    // Ignore own messages
+    if (from === userName) {
+      console.log('[SessionView] ⏭️ Ignoring own laugh trigger');
+      return;
+    }
+
+    // Play other user's laugh
+    const { presetId } = data;
+    if (presetId && playPresetRef.current) {
+      console.log(`[SessionView] 🎵 Playing other user's laugh: ${presetId} from ${from}`);
+      playPresetRef.current(presetId).catch((error) => {
+        console.error(`[SessionView] ❌ Failed to play laugh ${presetId}:`, error);
+      });
+    }
+  }, [userName]);
+
   const {
     connectionState,
     isConnected,
@@ -93,6 +121,7 @@ export const SessionView: React.FC = () => {
     enableWebRTC: false, // WebRTC now handled by Ion-SFU
     onBroadcastTimestamp: handleBroadcastTimestamp,
     onEmotionWithTimestamp: handleEmotionWithTimestamp,
+    onLaughTrigger: handleLaughTrigger,
     onIonMessage: handleIonMessage,
     onRoomJoined: useCallback((message: any) => {
       console.log('[SessionView] 🎯 Room joined message received:', message);
@@ -125,6 +154,34 @@ export const SessionView: React.FC = () => {
       }
     }, []),
   });
+
+  // Initialize laugh player with WebSocket message sending
+  const { processIntensity, playPreset } = useLaughPlayer({
+    selectedPattern: selectedLaughPattern,
+    onLaughTriggered: useCallback((presetId: string, level: string) => {
+      console.log(`🎵 [SessionView] Laugh triggered: ${presetId} (${level})`);
+      // Send WebSocket message to other users
+      if (roomId && isConnected) {
+        const laughMessage = {
+          type: 'laugh:trigger',
+          room: roomId,
+          from: userName,
+          timestamp: Date.now(),
+          data: {
+            presetId,
+            level: level as 'small' | 'medium' | 'large',
+          },
+        };
+        sendSignalingMessage(laughMessage);
+        console.log(`📤 [SessionView] Sent laugh:trigger message:`, laughMessage);
+      }
+    }, [roomId, userName, sendSignalingMessage, isConnected]),
+  });
+
+  // Store playPreset in ref for use in handleLaughTrigger callback
+  useEffect(() => {
+    playPresetRef.current = playPreset;
+  }, [playPreset]);
 
   // MediaPipe感情検出（ランドマーク送信機能付き）
   const {
@@ -186,13 +243,16 @@ export const SessionView: React.FC = () => {
             lastReactionSendTimeRef.current = now;
             // console.log('[SessionView] Viewer: Sent reaction with timestamp, intensity=', intensity);
           }
+
+          // 笑い声トリガー判定（視聴者のみ）
+          processIntensity(intensity);
         }
       }
     } else if (isBroadcaster) {
       // 配信者は感情データを送信しない（タイムスタンプのみ送信）
       // console.log('📡 Broadcaster: Skip sending emotion data (timestamp only)');
     }
-  }, [isConnected, sendEmotionData, normalizedLandmarks, normalizationData, isBroadcaster, hasTimestamp, userName]);
+  }, [isConnected, sendEmotionData, normalizedLandmarks, normalizationData, isBroadcaster, hasTimestamp, userName, processIntensity]);
 
   // 感情データの状態管理は削除（インジケーター非表示のため）
 

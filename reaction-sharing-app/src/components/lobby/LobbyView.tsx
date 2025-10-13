@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../common/Button';
 import { UserNameModal } from './UserNameModal';
 import { RoomList } from './RoomList';
+import { LaughPresetSelector } from './LaughPresetSelector';
 
 interface Room {
   id: string;
@@ -90,6 +91,13 @@ export const LobbyView: React.FC = () => {
             </div>
           )}
         </div>
+
+        {/* Laugh Preset Selector (ユーザ名設定後に表示) */}
+        {userName && (
+          <div className="max-w-4xl mx-auto mb-8">
+            <LaughPresetSelector />
+          </div>
+        )}
 
         {/* Room List */}
         <div className="max-w-4xl mx-auto">

@@ -11,12 +11,14 @@ import type {
   BroadcastTimestampMessage,
   EmotionWithTimestampMessage,
   RoomJoinedMessage,
+  LaughTriggerMessage,
 } from '../types/signaling';
 
 interface UseSignalingOptions {
   autoConnect?: boolean;
   onBroadcastTimestamp?: (message: BroadcastTimestampMessage) => void;
   onEmotionWithTimestamp?: (message: EmotionWithTimestampMessage) => void;
+  onLaughTrigger?: (message: LaughTriggerMessage) => void;
   onRoomJoined?: (message: RoomJoinedMessage) => void;
   onIonMessage?: (message: any) => void;
   enableWebRTC?: boolean; // Default: false (disabled for broadcast/viewer modes)
@@ -40,7 +42,7 @@ interface UseSignalingReturn {
 }
 
 export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingReturn => {
-  const { autoConnect = false, onBroadcastTimestamp, onEmotionWithTimestamp, onRoomJoined, onIonMessage, enableWebRTC = false } = options;
+  const { autoConnect = false, onBroadcastTimestamp, onEmotionWithTimestamp, onLaughTrigger, onRoomJoined, onIonMessage, enableWebRTC = false } = options;
   const { state: webrtcState, actions: webrtcActions } = useWebRTC();
 
   const [connectionState, setConnectionState] = useState<ConnectionState>('disconnected');
@@ -579,6 +581,7 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
       onEmotionProcessed: handleEmotionProcessed,
       onBroadcastTimestamp: onBroadcastTimestamp,
       onEmotionWithTimestamp: onEmotionWithTimestamp,
+      onLaughTrigger: onLaughTrigger,
       onIonMessage: onIonMessage,
       onRoomJoined: onRoomJoined,
       onError: (errorMessage) => {
@@ -617,6 +620,7 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
         onEmotionProcessed: handleEmotionProcessed,
         onBroadcastTimestamp: onBroadcastTimestamp,
         onEmotionWithTimestamp: onEmotionWithTimestamp,
+        onLaughTrigger: onLaughTrigger,
         onIonMessage: onIonMessage,
         onRoomJoined: onRoomJoined,
         onError: (errorMessage) => {
@@ -627,7 +631,7 @@ export const useSignaling = (options: UseSignalingOptions = {}): UseSignalingRet
     }
     // Only re-run when prop callbacks change, not internal handlers
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onBroadcastTimestamp, onEmotionWithTimestamp, onRoomJoined, onIonMessage]);
+  }, [onBroadcastTimestamp, onEmotionWithTimestamp, onLaughTrigger, onRoomJoined, onIonMessage]);
 
   return {
     connectionState,
