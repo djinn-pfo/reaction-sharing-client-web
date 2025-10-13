@@ -12,6 +12,7 @@ export class LaughPlayer {
   private previousIntensity: number = 0;
   private isPlaying: boolean = false; // 再生中フラグ
   private currentAudio: HTMLAudioElement | null = null; // 現在再生中のAudio要素
+  private isMuted: boolean = false; // ミュートフラグ
 
   constructor() {
     this.presetService = new LaughPresetService();
@@ -73,6 +74,12 @@ export class LaughPlayer {
    */
   async playAudioFromBuffer(audioData: ArrayBuffer): Promise<void> {
     try {
+      // ミュート中の場合はスキップ
+      if (this.isMuted) {
+        console.log(`🔇 [LaughPlayer] Muted, skipping playback`);
+        return;
+      }
+
       // 既に再生中の場合はスキップ
       if (this.isPlaying) {
         console.log(`⏭️ [LaughPlayer] Already playing, skipping new playback`);
@@ -179,5 +186,20 @@ export class LaughPlayer {
       this.isPlaying = false;
       console.log(`🛑 [LaughPlayer] Playback stopped`);
     }
+  }
+
+  /**
+   * ミュート状態を設定
+   */
+  setMuted(muted: boolean): void {
+    this.isMuted = muted;
+    console.log(`${muted ? '🔇' : '🔊'} [LaughPlayer] Mute ${muted ? 'enabled' : 'disabled'}`);
+  }
+
+  /**
+   * ミュート状態を取得
+   */
+  getMuted(): boolean {
+    return this.isMuted;
   }
 }

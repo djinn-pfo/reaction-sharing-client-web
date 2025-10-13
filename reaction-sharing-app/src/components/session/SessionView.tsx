@@ -46,6 +46,10 @@ export const SessionView: React.FC = () => {
   // 笑い声プリセットパターンを取得
   const selectedLaughPattern = localStorage.getItem('laughPattern') || 'male1';
 
+  // ミュート状態管理
+  const [ownLaughMuted, setOwnLaughMuted] = useState(false);
+  const [othersLaughMuted, setOthersLaughMuted] = useState(false);
+
   // Debug: Monitor isBroadcaster state changes
   useEffect(() => {
     console.log('[SessionView] 🔄 isBroadcaster state changed:', isBroadcaster);
@@ -80,29 +84,12 @@ export const SessionView: React.FC = () => {
     }
   }, []);
 
-  // We need to use a ref for playPreset since it will be used in the callback
-  const playPresetRef = useRef<((presetId: string) => Promise<void>) | null>(null);
+  // 視聴者ごとの笑い声パターンマッピング（全ユーザー用）
+  const userLaughPatternsRef = useRef<Map<string, string>>(new Map());
+  const availablePatterns = ['male1', 'male2', 'male3', 'female1', 'female2', 'female3'];
 
-  // Handle incoming laugh:trigger messages from other users
-  const handleLaughTrigger = useCallback((message: any) => {
-    console.log('[SessionView] 📥 Received laugh:trigger:', message);
-    const { from, data } = message;
-
-    // Ignore own messages
-    if (from === userName) {
-      console.log('[SessionView] ⏭️ Ignoring own laugh trigger');
-      return;
-    }
-
-    // Play other user's laugh
-    const { presetId } = data;
-    if (presetId && playPresetRef.current) {
-      console.log(`[SessionView] 🎵 Playing other user's laugh: ${presetId} from ${from}`);
-      playPresetRef.current(presetId).catch((error) => {
-        console.error(`[SessionView] ❌ Failed to play laugh ${presetId}:`, error);
-      });
-    }
-  }, [userName]);
+  // 各ユーザーのpreviousIntensityを追跡（他人の笑い声トリガー用）
+  const userPreviousIntensitiesRef = useRef<Map<string, number>>(new Map());
 
   const {
     connectionState,
@@ -121,7 +108,6 @@ export const SessionView: React.FC = () => {
     enableWebRTC: false, // WebRTC now handled by Ion-SFU
     onBroadcastTimestamp: handleBroadcastTimestamp,
     onEmotionWithTimestamp: handleEmotionWithTimestamp,
-    onLaughTrigger: handleLaughTrigger,
     onIonMessage: handleIonMessage,
     onRoomJoined: useCallback((message: any) => {
       console.log('[SessionView] 🎯 Room joined message received:', message);
@@ -155,33 +141,106 @@ export const SessionView: React.FC = () => {
     }, []),
   });
 
-  // Initialize laugh player with WebSocket message sending
-  const { processIntensity, playPreset } = useLaughPlayer({
+  // Initialize laugh player for own laughs (local playback only)
+  const ownLaughPlayer = useLaughPlayer({
     selectedPattern: selectedLaughPattern,
     onLaughTriggered: useCallback((presetId: string, level: string) => {
-      console.log(`🎵 [SessionView] Laugh triggered: ${presetId} (${level})`);
-      // Send WebSocket message to other users
-      if (roomId && isConnected) {
-        const laughMessage = {
-          type: 'laugh:trigger',
-          room: roomId,
-          from: userName,
-          timestamp: Date.now(),
-          data: {
-            presetId,
-            level: level as 'small' | 'medium' | 'large',
-          },
-        };
-        sendSignalingMessage(laughMessage);
-        console.log(`📤 [SessionView] Sent laugh:trigger message:`, laughMessage);
-      }
-    }, [roomId, userName, sendSignalingMessage, isConnected]),
+      console.log(`🎵 [SessionView] Own laugh triggered: ${presetId} (${level})`);
+      // 自分の笑い声はローカルで再生するだけ
+      // 他のユーザーは、ブロードキャストされた感情値から自動的にトリガーされる
+    }, []),
   });
 
-  // Store playPreset in ref for use in handleLaughTrigger callback
+  // Initialize laugh player for others' laughs (no triggering, only playback)
+  const othersLaughPlayer = useLaughPlayer({
+    selectedPattern: selectedLaughPattern, // Pattern doesn't matter for others, presetId will be provided
+    onLaughTriggered: undefined, // Others' player doesn't trigger automatically
+  });
+
+  // Sync mute state with own laugh player
   useEffect(() => {
-    playPresetRef.current = playPreset;
-  }, [playPreset]);
+    ownLaughPlayer.setMuted(ownLaughMuted);
+  }, [ownLaughMuted, ownLaughPlayer]);
+
+  // Sync mute state with others laugh player
+  useEffect(() => {
+    othersLaughPlayer.setMuted(othersLaughMuted);
+  }, [othersLaughMuted, othersLaughPlayer]);
+
+  // 他のユーザーの感情値を監視して笑い声をトリガー
+  useEffect(() => {
+    // receivedEmotionsの各ユーザーをチェック
+    receivedEmotions.forEach((emotions, userId) => {
+      // 自分自身は除外（自分の笑い声は別処理）
+      if (userId === userName) {
+        return;
+      }
+
+      // 最新の感情データを取得
+      if (emotions.length === 0) {
+        return;
+      }
+
+      const latestEmotion = emotions[emotions.length - 1];
+      const currentIntensity = latestEmotion.intensity;
+
+      // previousIntensityを取得（初回は0）
+      const previousIntensity = userPreviousIntensitiesRef.current.get(userId) || 0;
+
+      // Δintensityを計算
+      const delta = currentIntensity - previousIntensity;
+
+      // previousIntensityを更新
+      userPreviousIntensitiesRef.current.set(userId, currentIntensity);
+
+      // トリガー判定: Δintensity >= 10
+      if (delta < 10) {
+        return;
+      }
+
+      // レベル判定（LaughPlayerと同じロジック）
+      let level: 'small' | 'medium' | 'large' | null = null;
+
+      if (currentIntensity < 20) {
+        // 0-19: 無音
+        level = null;
+      } else if (currentIntensity < 40) {
+        // 20-39: 小笑い
+        level = 'small';
+      } else if (currentIntensity < 70) {
+        // 40-69: 中笑い
+        level = 'medium';
+      } else {
+        // 70-100: 大笑い
+        level = 'large';
+      }
+
+      // 無音の場合はスキップ
+      if (level === null) {
+        return;
+      }
+
+      // そのユーザーにパターンが割り当てられていない場合、ランダムに割り当て
+      if (!userLaughPatternsRef.current.has(userId)) {
+        const usedPatterns = Array.from(userLaughPatternsRef.current.values());
+        const availableForSelection = availablePatterns.filter(p => !usedPatterns.includes(p));
+        const selectFrom = availableForSelection.length > 0 ? availableForSelection : availablePatterns;
+        const randomPattern = selectFrom[Math.floor(Math.random() * selectFrom.length)];
+        userLaughPatternsRef.current.set(userId, randomPattern);
+        console.log(`[SessionView] 🎲 Assigned pattern "${randomPattern}" to user ${userId}`);
+      }
+
+      const assignedPattern = userLaughPatternsRef.current.get(userId)!;
+      const presetId = `${assignedPattern}_${level}`;
+
+      console.log(`[SessionView] 🎵 Triggering laugh for user ${userId}: ${presetId} (Δ=${delta.toFixed(1)}, intensity=${currentIntensity})`);
+
+      // 他人の笑い声プレイヤーで再生
+      othersLaughPlayer.playPreset(presetId).catch((error) => {
+        console.error(`[SessionView] ❌ Failed to play laugh for user ${userId}:`, error);
+      });
+    });
+  }, [receivedEmotions, userName, othersLaughPlayer]);
 
   // MediaPipe感情検出（ランドマーク送信機能付き）
   const {
@@ -245,14 +304,14 @@ export const SessionView: React.FC = () => {
           }
 
           // 笑い声トリガー判定（視聴者のみ）
-          processIntensity(intensity);
+          ownLaughPlayer.processIntensity(intensity);
         }
       }
     } else if (isBroadcaster) {
       // 配信者は感情データを送信しない（タイムスタンプのみ送信）
       // console.log('📡 Broadcaster: Skip sending emotion data (timestamp only)');
     }
-  }, [isConnected, sendEmotionData, normalizedLandmarks, normalizationData, isBroadcaster, hasTimestamp, userName, processIntensity]);
+  }, [isConnected, sendEmotionData, normalizedLandmarks, normalizationData, isBroadcaster, hasTimestamp, userName, ownLaughPlayer]);
 
   // 感情データの状態管理は削除（インジケーター非表示のため）
 
@@ -798,12 +857,44 @@ export const SessionView: React.FC = () => {
               )}
             </div>
           </div>
-          <Button
-            variant="danger"
-            onClick={handleLeaveRoom}
-          >
-            ルームを退出
-          </Button>
+
+          <div className="flex items-center gap-3">
+            {/* Laugh mute controls */}
+            <div className="flex items-center gap-2 bg-gray-800 px-3 py-2 rounded-lg">
+              <button
+                onClick={() => setOwnLaughMuted(!ownLaughMuted)}
+                className={`flex items-center gap-1 px-3 py-1 rounded transition-colors ${
+                  ownLaughMuted
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+                title={ownLaughMuted ? '自分の笑い声をオンにする' : '自分の笑い声をミュートする'}
+              >
+                <span className="text-lg">{ownLaughMuted ? '🔇' : '🔊'}</span>
+                <span className="text-xs">自分</span>
+              </button>
+
+              <button
+                onClick={() => setOthersLaughMuted(!othersLaughMuted)}
+                className={`flex items-center gap-1 px-3 py-1 rounded transition-colors ${
+                  othersLaughMuted
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+                title={othersLaughMuted ? '他の人の笑い声をオンにする' : '他の人の笑い声をミュートする'}
+              >
+                <span className="text-lg">{othersLaughMuted ? '🔇' : '🔊'}</span>
+                <span className="text-xs">他の人</span>
+              </button>
+            </div>
+
+            <Button
+              variant="danger"
+              onClick={handleLeaveRoom}
+            >
+              ルームを退出
+            </Button>
+          </div>
         </div>
 
         {/* Main Content */}

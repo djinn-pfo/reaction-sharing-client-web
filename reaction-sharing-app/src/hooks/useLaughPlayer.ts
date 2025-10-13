@@ -78,10 +78,26 @@ export const useLaughPlayer = (options: UseLaughPlayerOptions) => {
     return playerRef.current.getPreviousIntensity();
   }, []);
 
+  /**
+   * ミュート状態を設定
+   */
+  const setMuted = useCallback((muted: boolean) => {
+    playerRef.current.setMuted(muted);
+  }, []);
+
+  /**
+   * ミュート状態を取得
+   */
+  const getMuted = useCallback(() => {
+    return playerRef.current.getMuted();
+  }, []);
+
   return {
     processIntensity,
     playPreset,
     resetIntensity,
-    getPreviousIntensity
+    getPreviousIntensity,
+    setMuted,
+    getMuted
   };
 };
