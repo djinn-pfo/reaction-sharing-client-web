@@ -29,12 +29,12 @@ const PATTERN_ICONS: Record<string, string> = {
 
 // パターンの表示名
 const PATTERN_LABELS: Record<string, string> = {
-  male1: '男性1',
-  male2: '男性2',
-  male3: '男性3',
-  female1: '女性1',
-  female2: '女性2',
-  female3: '女性3',
+  male1: '女性1',
+  male2: '男性1',
+  male3: '男性2',
+  female1: '女性2',
+  female2: '女性3',
+  female3: '女性4',
 };
 
 export const LaughPresetSelector: React.FC<LaughPresetSelectorProps> = ({
