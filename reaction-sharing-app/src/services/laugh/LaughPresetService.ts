@@ -5,10 +5,8 @@
  */
 
 import { IndexedDBManager } from './IndexedDBManager';
+import { config } from '../../config/environment';
 import type { LaughPreset, BackendPresetsResponse, LaughPresetDB } from '../../types/laugh';
-
-const LAUGH_API_URL = import.meta.env.VITE_LAUGH_API_URL || 'http://localhost:5001';
-const STATIC_BASE_URL = import.meta.env.VITE_STATIC_BASE_URL || 'http://localhost:8080';
 
 export class LaughPresetService {
   private dbManager: IndexedDBManager;
@@ -22,9 +20,9 @@ export class LaughPresetService {
    */
   async fetchPresets(): Promise<LaughPreset[]> {
     try {
-      console.log(`📡 [LaughPresetService] Fetching presets from ${LAUGH_API_URL}/api/v1/laugh/presets`);
+      console.log(`📡 [LaughPresetService] Fetching presets from ${config.laughApiUrl}/api/v1/laugh/presets`);
 
-      const response = await fetch(`${LAUGH_API_URL}/api/v1/laugh/presets`);
+      const response = await fetch(`${config.laughApiUrl}/api/v1/laugh/presets`);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -61,7 +59,7 @@ export class LaughPresetService {
    * プリセット音声ファイルをダウンロード
    */
   async downloadPresetAudio(url: string): Promise<ArrayBuffer> {
-    const fullUrl = `${STATIC_BASE_URL}${url}`;
+    const fullUrl = `${config.staticBaseUrl}${url}`;
     console.log(`⬇️ [LaughPresetService] Downloading audio: ${fullUrl}`);
 
     const response = await fetch(fullUrl);

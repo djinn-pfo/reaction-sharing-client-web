@@ -21,8 +21,19 @@ export function useIonSession(options: UseIonSessionOptions) {
   const sessionRef = useRef<IonSessionManager | null>(null);
 
   // Initialize session manager
+  // IMPORTANT: Wait for role determination before creating session
+  // noPublish and noSubscribe depend on isBroadcaster being determined
   useEffect(() => {
-    console.log('🔧 [useIonSession] Initializing session manager');
+    // Don't create session until role is determined
+    if (options.noPublish === undefined || options.noSubscribe === undefined) {
+      console.log('🔧 [useIonSession] Waiting for role determination (noPublish/noSubscribe undefined)');
+      return;
+    }
+
+    console.log('🔧 [useIonSession] Initializing session manager', {
+      noPublish: options.noPublish,
+      noSubscribe: options.noSubscribe,
+    });
 
     const session = new IonSessionManager(
       {
@@ -55,7 +66,7 @@ export function useIonSession(options: UseIonSessionOptions) {
       console.log('🧹 [useIonSession] Cleaning up session');
       session.leave();
     };
-  }, [options.roomId, options.userId, options.sendIonMessage, options.noPublish, options.noSubscribe]);
+  }, [options.roomId, options.userId, options.noPublish, options.noSubscribe]);
 
   // Handle incoming Ion messages - handled via handleMessage function below
   // This useEffect is no longer needed as we export handleMessage directly

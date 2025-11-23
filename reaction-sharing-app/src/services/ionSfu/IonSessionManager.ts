@@ -407,10 +407,10 @@ export class IonSessionManager {
    */
   private createPeerConnection(type: 'publish' | 'subscribe'): RTCPeerConnection {
     console.groupCollapsed(`🔧 [ION] Creating ${type} peer connection`);
-    console.log('STUN servers:', config.stunServers);
+    console.log('ICE servers:', config.iceServers);
 
     const pc = new RTCPeerConnection({
-      iceServers: config.stunServers.map(url => ({ urls: url })),
+      iceServers: config.iceServers,
     });
 
     console.log('✅ RTCPeerConnection created');

@@ -203,7 +203,7 @@ export const WebRTCProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const createPeerConnection = useCallback(async (peerId: string, _username: string): Promise<RTCPeerConnection> => {
     try {
       const rtcConfig: RTCConfiguration = {
-        iceServers: config.stunServers.map(url => ({ urls: url })),
+        iceServers: config.iceServers,
         iceCandidatePoolSize: 10,
       };
 
