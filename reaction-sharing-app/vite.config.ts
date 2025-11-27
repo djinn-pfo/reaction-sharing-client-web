@@ -11,6 +11,9 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
 
+    // ベースパス設定（開発環境はサブパス /dev/ でデプロイ）
+    base: mode === 'development' ? '/dev/' : '/',
+
     // モード情報を定義
     define: {
       __APP_ENV__: JSON.stringify(mode),

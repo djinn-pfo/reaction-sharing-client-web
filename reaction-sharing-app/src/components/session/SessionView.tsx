@@ -578,7 +578,8 @@ export const SessionView: React.FC = () => {
     }
 
     const initializeServices = async () => {
-      ionInitializedRef.current = true;
+      // Don't set ionInitializedRef here - set it only after successful ion:join
+      // This allows retry if ionSession.join() fails (e.g., sessionRef not ready yet)
 
       if (isBroadcaster) {
         // Broadcaster: Initialize timestamp sync, reaction receiver, and Ion-SFU publish
@@ -599,16 +600,18 @@ export const SessionView: React.FC = () => {
 
           timestampSyncRef.current.startPeriodicSync(50);
           console.log('[SessionView] Broadcaster services initialized');
+        }
 
-          // Publish video stream via Ion-SFU (WebSocket)
-          if (!ionSession.isJoined) {
-            try {
-              console.log('[SessionView] 📡 Starting Ion-SFU publish (WebSocket)...');
-              await ionSession.join(localStream);
-              console.log('[SessionView] ✅ Ion-SFU publish completed');
-            } catch (error) {
-              console.error('[SessionView] ❌ Ion-SFU publish failed:', error);
-            }
+        // Publish video stream via Ion-SFU (WebSocket)
+        if (!ionSession.isJoined && !ionInitializedRef.current) {
+          try {
+            console.log('[SessionView] 📡 Starting Ion-SFU publish (WebSocket)...');
+            await ionSession.join(localStream);
+            ionInitializedRef.current = true; // Set AFTER successful join
+            console.log('[SessionView] ✅ Ion-SFU publish completed');
+          } catch (error) {
+            console.error('[SessionView] ❌ Ion-SFU publish failed:', error);
+            // Don't set ionInitializedRef - allow retry on next useEffect run
           }
         }
       } else if (isBroadcaster === false) {
@@ -623,16 +626,18 @@ export const SessionView: React.FC = () => {
             sendEmotionWithTimestamp
           );
           console.log('[SessionView] Viewer services initialized');
+        }
 
-          // Subscribe to broadcaster's video stream via Ion-SFU (WebSocket)
-          if (!ionSession.isJoined) {
-            try {
-              console.log('[SessionView] 📡 Starting Ion-SFU subscribe (WebSocket)...');
-              await ionSession.join(localStream);
-              console.log('[SessionView] ✅ Ion-SFU subscribe completed');
-            } catch (error) {
-              console.error('[SessionView] ❌ Ion-SFU subscribe failed:', error);
-            }
+        // Subscribe to broadcaster's video stream via Ion-SFU (WebSocket)
+        if (!ionSession.isJoined && !ionInitializedRef.current) {
+          try {
+            console.log('[SessionView] 📡 Starting Ion-SFU subscribe (WebSocket)...');
+            await ionSession.join(localStream);
+            ionInitializedRef.current = true; // Set AFTER successful join
+            console.log('[SessionView] ✅ Ion-SFU subscribe completed');
+          } catch (error) {
+            console.error('[SessionView] ❌ Ion-SFU subscribe failed:', error);
+            // Don't set ionInitializedRef - allow retry on next useEffect run
           }
         }
       }

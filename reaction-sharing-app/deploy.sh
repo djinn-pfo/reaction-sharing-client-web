@@ -29,11 +29,11 @@ if [ "$ENV" = "production" ]; then
   BUILD_DIR="dist"
   ENV_FILE=".env.production"
 else
-  # 開発環境の設定（必要に応じて変更してください）
+  # 開発環境の設定（パスベースでデプロイ: /dev/）
   VPS_USER="lolup"
   VPS_HOST="os3-294-36938.vs.sakura.ne.jp"
   VPS_PATH="/var/www/reaction-sharing-app-dev"
-  VPS_URL="https://dev.os3-294-36938.vs.sakura.ne.jp"
+  VPS_URL="https://os3-294-36938.vs.sakura.ne.jp/dev"
   BUILD_DIR="dist-dev"
   ENV_FILE=".env.development"
 fi

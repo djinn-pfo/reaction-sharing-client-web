@@ -19,6 +19,8 @@ export function useIonSession(options: UseIonSessionOptions) {
   const [error, setError] = useState<Error | null>(null);
   const [isJoined, setIsJoined] = useState(false);
   const sessionRef = useRef<IonSessionManager | null>(null);
+  // Queue for messages received before session is ready
+  const pendingMessagesRef = useRef<IonMessage[]>([]);
 
   // Initialize session manager
   // IMPORTANT: Wait for role determination before creating session
@@ -62,6 +64,16 @@ export function useIonSession(options: UseIonSessionOptions) {
 
     sessionRef.current = session;
 
+    // Process any pending messages that arrived before session was ready
+    if (pendingMessagesRef.current.length > 0) {
+      console.log(`📬 [useIonSession] Processing ${pendingMessagesRef.current.length} pending messages`);
+      pendingMessagesRef.current.forEach((msg) => {
+        console.log(`📬 [useIonSession] Processing queued message: ${msg.type}`);
+        session.handleMessage(msg);
+      });
+      pendingMessagesRef.current = [];
+    }
+
     return () => {
       console.log('🧹 [useIonSession] Cleaning up session');
       session.leave();
@@ -95,6 +107,10 @@ export function useIonSession(options: UseIonSessionOptions) {
         await sessionRef.current.join(mediaStream);
         setIsJoined(true);
         console.log('✅ [useIonSession] Join process completed');
+      } else {
+        // Session not initialized yet - throw error to allow retry
+        console.warn('⚠️ [useIonSession] Session not initialized yet, cannot join');
+        throw new Error('IonSession not initialized - will retry');
       }
     } catch (err) {
       const error = err as Error;
@@ -128,6 +144,10 @@ export function useIonSession(options: UseIonSessionOptions) {
   const handleMessage = useCallback((message: IonMessage) => {
     if (sessionRef.current) {
       sessionRef.current.handleMessage(message);
+    } else {
+      // Queue message if session not ready yet
+      console.warn(`⚠️ [useIonSession] Session not ready, queuing message: ${message.type}`);
+      pendingMessagesRef.current.push(message);
     }
   }, []);
 

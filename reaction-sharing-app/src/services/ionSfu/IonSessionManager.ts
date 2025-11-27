@@ -68,12 +68,30 @@ export class IonSessionManager {
 
     this.localStream = localStream;
 
+    // Close existing peer connections before creating new ones
+    console.log('📝 Step 0: Cleaning up existing peer connections...');
+    if (this.publishPC) {
+      console.log('  - Closing existing publish PC');
+      this.publishPC.close();
+      this.publishPC = null;
+    }
+    if (this.subscribePC) {
+      console.log('  - Closing existing subscribe PC');
+      this.subscribePC.close();
+      this.subscribePC = null;
+    }
+    // Clear pending ICE candidates
+    this.pendingPublishCandidates = [];
+    this.pendingSubscribeCandidates = [];
+    console.log('✅ Step 0 complete');
+
     // Create peer connection for publishing
     console.log('📝 Step 1: Creating peer connection...');
     this.publishPC = this.createPeerConnection('publish');
     console.log('✅ Step 1 complete');
 
     // Add local tracks or transceivers to peer connection
+    // IMPORTANT: Always add in order: audio first, then video (m-line order must be consistent)
     console.log('📝 Step 2: Adding tracks/transceivers...');
     if (this.config.noPublish) {
       // Viewer: Add recvonly transceivers to receive remote media
@@ -83,10 +101,18 @@ export class IonSessionManager {
       this.publishPC.addTransceiver('video', { direction: 'recvonly' });
     } else {
       // Broadcaster: Add local tracks for sending
-      localStream.getTracks().forEach(track => {
-        console.log(`  - Adding ${track.kind} track (broadcaster mode)`);
-        this.publishPC!.addTrack(track, localStream);
-      });
+      // IMPORTANT: Add audio first, then video to ensure consistent m-line order
+      const audioTrack = localStream.getAudioTracks()[0];
+      const videoTrack = localStream.getVideoTracks()[0];
+
+      if (audioTrack) {
+        console.log('  - Adding audio track (broadcaster mode)');
+        this.publishPC.addTrack(audioTrack, localStream);
+      }
+      if (videoTrack) {
+        console.log('  - Adding video track (broadcaster mode)');
+        this.publishPC.addTrack(videoTrack, localStream);
+      }
     }
     console.log('✅ Step 2 complete');
 
@@ -196,6 +222,17 @@ export class IonSessionManager {
       return;
     }
 
+    // Check signaling state before setting remote description
+    const state = this.publishPC.signalingState;
+    console.log('📝 Current signaling state:', state);
+
+    // Valid state for setRemoteDescription(answer): 'have-local-offer'
+    if (state !== 'have-local-offer') {
+      console.warn(`⚠️ Cannot set remote answer in state: ${state}. Expected 'have-local-offer'. Ignoring.`);
+      console.groupEnd();
+      return;
+    }
+
     try {
       console.log('📝 Setting remote description on publish PC...');
       await this.publishPC.setRemoteDescription(
@@ -225,18 +262,25 @@ export class IonSessionManager {
     console.log('Payload SDP length:', payload.desc.sdp?.length || 0);
     console.log('Payload type:', payload.desc.type);
 
-    // Create subscribe peer connection if not exists
-    if (!this.subscribePC) {
-      console.log('📝 Step 1: Creating subscribe peer connection...');
-      this.subscribePC = this.createPeerConnection('subscribe');
-      console.log('✅ Step 1 complete');
-    } else {
-      console.log('ℹ️ Subscribe PC already exists');
+    // ALWAYS close existing subscribe PC and create a new one
+    // This avoids m-line order mismatch errors when receiving new offers
+    // (e.g., when a new publisher joins and Ion-SFU sends a new offer with different m-line order)
+    if (this.subscribePC) {
+      const state = this.subscribePC.signalingState;
+      console.log('ℹ️ Closing existing subscribe PC (state:', state, ') to avoid m-line order conflicts');
+      this.subscribePC.close();
+      this.subscribePC = null;
+      this.pendingSubscribeCandidates = [];
     }
+
+    // Create new subscribe peer connection
+    console.log('📝 Step 1: Creating subscribe peer connection...');
+    this.subscribePC = this.createPeerConnection('subscribe');
+    console.log('✅ Step 1 complete');
 
     try {
       // Set remote description
-      console.log('📝 Step 2: Setting remote description...');
+      console.log('📝 Step 2: Setting remote description... (signalingState:', this.subscribePC.signalingState, ')');
       await this.subscribePC.setRemoteDescription(
         new RTCSessionDescription(payload.desc)
       );
@@ -266,19 +310,21 @@ export class IonSessionManager {
 
       // Send answer back to server
       // IMPORTANT: Use localDescription to ensure type is string
-      this.sendMessage({
-        type: 'ion:answer',
+      const answerMessage = {
+        type: 'ion:answer' as const,
         payload: {
           desc: {
             sdp: this.subscribePC.localDescription!.sdp,
             type: this.subscribePC.localDescription!.type,  // Guaranteed string "answer"
           },
         },
-      });
+      };
+      this.sendMessage(answerMessage);
 
-      console.log('✅ Step 6 complete - Answer sent successfully');
-      console.log('🎉 [ION] Subscribe PC setup completed!');
+      // Log outside collapsed group for visibility
       console.groupEnd();
+      console.log('📤📤📤 [ION] SUBSCRIBE ANSWER SENT - SDP length:', answerMessage.payload.desc.sdp.length);
+      console.log('🎉 [ION] Subscribe PC setup completed! Now waiting for ICE connection...');
     } catch (error) {
       console.error('❌ [ION] Failed to handle offer:', error);
       console.groupEnd();
@@ -293,6 +339,10 @@ export class IonSessionManager {
     const pcType = payload.target === 0 ? 'publish' : 'subscribe';
     const pc = payload.target === 0 ? this.publishPC : this.subscribePC;
     const pendingQueue = payload.target === 0 ? this.pendingPublishCandidates : this.pendingSubscribeCandidates;
+
+    // Log every received candidate for debugging
+    console.log(`🧊⬇️ [ION] Received ICE candidate for ${pcType} (target=${payload.target}):`,
+      payload.candidate.candidate?.substring(0, 60) + '...');
 
     // If PC doesn't exist yet, queue the candidate
     if (!pc) {
@@ -311,9 +361,12 @@ export class IonSessionManager {
 
       // Add candidate immediately if PC is ready
       await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-      console.log(`🧊 [ION] ICE candidate added to ${pcType} PC`);
+      console.log(`✅🧊 [ION] ICE candidate ADDED to ${pcType} PC (signalingState: ${pc.signalingState}, iceConnectionState: ${pc.iceConnectionState})`);
     } catch (error) {
       console.error(`❌ [ION] Failed to add ICE candidate to ${pcType} PC:`, error);
+      console.error(`   - signalingState: ${pc.signalingState}`);
+      console.error(`   - iceConnectionState: ${pc.iceConnectionState}`);
+      console.error(`   - candidate: ${payload.candidate.candidate}`);
     }
   }
 
@@ -356,14 +409,13 @@ export class IonSessionManager {
    * Wait for ICE gathering to complete
    */
   private waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
-    console.groupCollapsed('⏰ [ION] Waiting for ICE gathering');
-    console.log('Current state:', pc.iceGatheringState);
+    const startTime = Date.now();
+    console.log('⏰ [ION] Starting ICE gathering wait - current state:', pc.iceGatheringState);
 
     return new Promise((resolve) => {
       // Already complete
       if (pc.iceGatheringState === 'complete') {
-        console.log('✅ Already complete');
-        console.groupEnd();
+        console.log('✅ [ION] ICE gathering already complete');
         resolve();
         return;
       }
@@ -371,10 +423,10 @@ export class IonSessionManager {
       let timeoutId: NodeJS.Timeout;
 
       const checkState = () => {
-        console.log('State changed to:', pc.iceGatheringState);
+        const elapsed = Date.now() - startTime;
+        console.log(`🧊 [ION] ICE gathering state changed to: ${pc.iceGatheringState} (after ${elapsed}ms)`);
         if (pc.iceGatheringState === 'complete') {
-          console.log('✅ ICE gathering complete!');
-          console.groupEnd();
+          console.log(`✅ [ION] ICE gathering complete! (took ${elapsed}ms)`);
           pc.removeEventListener('icegatheringstatechange', checkState);
           clearTimeout(timeoutId);
           resolve();
@@ -382,12 +434,12 @@ export class IonSessionManager {
       };
 
       pc.addEventListener('icegatheringstatechange', checkState);
-      console.log('Event listener added, waiting max 10 seconds...');
 
       // Timeout after 10 seconds
       timeoutId = setTimeout(() => {
-        console.warn('⚠️ TIMEOUT after 10 seconds! Final state:', pc.iceGatheringState);
-        console.groupEnd();
+        const elapsed = Date.now() - startTime;
+        console.warn(`⚠️⚠️⚠️ [ION] ICE GATHERING TIMEOUT after ${elapsed}ms! Final state: ${pc.iceGatheringState}`);
+        console.warn(`   - This may cause connection issues but trickle ICE should still work`);
         pc.removeEventListener('icegatheringstatechange', checkState);
         resolve();
       }, 10000);
@@ -453,6 +505,34 @@ export class IonSessionManager {
       }
 
       this.onConnectionStateChange?.(pc.connectionState);
+    };
+
+    // Handle ICE connection state changes (more detailed than connection state)
+    pc.oniceconnectionstatechange = () => {
+      const iceStateEmoji = {
+        'new': '🆕',
+        'checking': '🔍',
+        'connected': '✅',
+        'completed': '🏁',
+        'disconnected': '⚠️',
+        'failed': '❌',
+        'closed': '🚪'
+      }[pc.iceConnectionState] || '❓';
+
+      console.log(`${iceStateEmoji} [ION] ICE Connection state (${type}): ${pc.iceConnectionState}`);
+
+      // Log failure details for debugging
+      if (pc.iceConnectionState === 'failed') {
+        console.error(`❌ [ION] ICE CONNECTION FAILED for ${type} PC!`);
+        console.error(`   - Check STUN/TURN server configuration`);
+        console.error(`   - Check network connectivity`);
+        console.error(`   - Check firewall settings`);
+      }
+    };
+
+    // Handle ICE gathering state changes
+    pc.onicegatheringstatechange = () => {
+      console.log(`🧊 [ION] ICE Gathering state (${type}): ${pc.iceGatheringState}`);
     };
 
     // Handle remote tracks (for subscribe PC)

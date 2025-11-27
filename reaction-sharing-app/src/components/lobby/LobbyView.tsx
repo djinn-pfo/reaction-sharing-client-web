@@ -18,22 +18,22 @@ export const LobbyView: React.FC = () => {
   const [showUserNameModal, setShowUserNameModal] = useState(false);
   const [rooms] = useState<Room[]>([
     {
-      id: 'demo-room',
-      name: '🧪 デモルーム (ローカル開発)',
+      id: 'theather-a',
+      name: '🎭️シアターA👏',
       participants: 0,
       maxParticipants: 10,
     },
     {
-      id: 'room-001',
-      name: 'メインルーム',
-      participants: 3,
+      id: 'theather-b',
+      name: '🎭️シアターB👏',
+      participants: 0,
       maxParticipants: 10,
     },
     {
-      id: 'room-002',
-      name: 'テストルーム',
-      participants: 1,
-      maxParticipants: 5,
+      id: 'theater-c',
+      name: '🎭️シアターC👏',
+      participants: 0,
+      maxParticipants: 10,
     },
   ]);
 

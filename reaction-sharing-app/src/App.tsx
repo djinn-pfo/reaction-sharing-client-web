@@ -22,11 +22,15 @@ try {
 function App() {
   console.log('🎯 App component rendering...');
 
+  // Viteのbase設定から自動的にbasenameを取得
+  const basename = import.meta.env.BASE_URL;
+  console.log('🔗 Router basename:', basename);
+
   return (
     <ErrorBoundary>
       <AuthProvider>
         <WebRTCProvider>
-          <Router>
+          <Router basename={basename}>
             <div className="min-h-screen bg-gray-50 flex flex-col">
               <main className="flex-1">
                 <Routes>
